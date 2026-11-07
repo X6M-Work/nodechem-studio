@@ -359,6 +359,10 @@ docs/
 
 ## Safety and licensing
 
+NodeChem Studio itself is free software under the **Apache License 2.0** (see [`LICENSE`](LICENSE)).
+That licence covers this repository's own code and documentation; it does not grant any right to
+Gaussian, which is licensed separately by Gaussian, Inc.
+
 - Gaussian is commercial software. This project only **drives an installation the user is licensed
   to use on that machine**.
 - Gaussian licences are platform-bound. Do not copy a Gaussian installation to another computer, do
@@ -369,6 +373,8 @@ docs/
 - Dry run is deliberately the default. It produces a file headed `FIXTURE OUTPUT` and never claims
   to be a Gaussian result.
 - Run records stay under Electron's `userData` directory. No run data is uploaded.
+- No Gaussian binaries, licence files or scratch data are included in this repository, in the
+  installer, or in any release artifact.
 
 ## Documentation
 

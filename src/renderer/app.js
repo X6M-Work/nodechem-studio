@@ -28,6 +28,7 @@ import {
 } from '../shared/tsForceConstants.js';
 import { runClusterAction } from './clusterExport.js';
 import { provenanceSummary, syncVerifyButton, verifyRunInput } from './provenance.js';
+import { mountThermochemistryView } from './thermochemistryView.js';
 
 const desktop = window.desktop || null;
 
@@ -2104,6 +2105,7 @@ async function startSelectedRun() {
   syncVerifyButton($('#verify-run'), null);
   $('#run-output').textContent = 'Starting local runner…\n';
   $('#run-gates').innerHTML = '';
+  mountThermochemistryView($('#run-thermo'), null);
   $('#run-title').textContent = node.title;
   $('#run-path').textContent = '';
   $('#cancel-run')?.removeAttribute('disabled');
@@ -2152,6 +2154,7 @@ function handleRunEvent(event) {
     state.run.id = record.id || state.run.id;
     setRunState(record.status, record.status);
     renderRunGates(record.gates?.gates || []);
+    mountThermochemistryView($('#run-thermo'), record.parsed);
     $('#cancel-run')?.setAttribute('disabled', '');
     const verdict = record.gates?.overall || 'unknown';
     setStatusMessage(`Run ${record.status} · gates ${verdict} · ${record.title || 'local job'}`);

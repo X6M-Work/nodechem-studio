@@ -1,0 +1,109 @@
+/**
+ * Thermochemistry view for the run console.
+ *
+ * Pure presentation: the numbers and the audit trail come from
+ * `src/shared/thermochemistry.js`. This module only touches the DOM in
+ * `mountThermochemistryView`; `thermochemistryPanelHtml` is a pure string
+ * function so the row layout can be tested without a browser.
+ */
+
+import {
+  HARTREE_TO_KCAL_PER_MOL,
+  STANDARD_STATE_CORRECTION_KCAL_PER_MOL,
+  buildThermochemistryReport,
+} from '../shared/thermochemistry.js';
+
+const OPTION_BY_LINE = {
+  'quasi-rrho': 'quasiRRHO',
+  'standard-state': 'standardState',
+};
+
+function esc(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[char]));
+}
+
+function number(value, digits = 2, signed = false) {
+  if (!Number.isFinite(value)) return '—';
+  const text = value.toFixed(digits);
+  return signed && value > 0 ? `+${text}` : text;
+}
+
+function constantLabel(line) {
+  if (line.id === 'quasi-rrho') return `cutoff = ${line.constant.value} cm⁻¹`;
+  if (line.id === 'standard-state') return `1 atm → 1 M = ${line.constant.value} kcal/mol`;
+  return `${line.constant.name} = ${line.constant.value} ${line.constant.unit}`;
+}
+
+/**
+ * Render the thermochemistry panel. Every correction is its own row with its
+ * constant; the total is a separate row. A disabled correction shows its
+ * computed value but contributes zero.
+ */
+export function thermochemistryPanelHtml(report) {
+  if (!report) return '';
+  const baseline = report.baseline?.hartree !== null && Number.isFinite(report.baseline?.hartree)
+    ? `${number(report.baseline.hartree, 6)} Eh · ${number(report.baseline.kcalPerMol)} kcal/mol`
+    : 'not parsed';
+  const rows = report.lines.map((line) => {
+    const option = OPTION_BY_LINE[line.id];
+    const checked = line.enabled ? ' checked' : '';
+    const value = line.correctionKcalPerMol === null
+      ? 'unavailable'
+      : `${number(line.correctionKcalPerMol, 2, true)} kcal/mol`;
+    return `<label class="run-thermo-row" title="${esc(line.detail)}">`
+      + `<input type="checkbox" data-thermo-toggle="${esc(option)}"${checked}>`
+      + `<span class="run-thermo-label">${esc(line.label)}`
+      + `<small title="${esc(`${line.constant.name} = ${line.constant.value} ${line.constant.unit}`)}">`
+      + `${esc(constantLabel(line))}</small></span>`
+      + `<span class="run-thermo-value">${esc(value)}</span>`
+      + '</label>';
+  }).join('');
+  const total = report.available
+    ? `<strong>${number(report.total.hartree, 6)} Eh</strong>`
+      + `<span>${number(report.total.kcalPerMol)} kcal/mol</span>`
+    : '<strong class="run-thermo-unknown">unknown</strong>'
+      + '<span>an enabled correction could not be computed</span>';
+  const warnings = report.warnings.length
+    ? `<div class="run-thermo-warn">${report.warnings.map(esc).join('<br>')}</div>`
+    : '';
+  return `<div class="run-thermo-head"><span>Thermochemistry</span>`
+    + `<span>G from log: ${esc(baseline)}</span></div>`
+    + rows
+    + `<div class="run-thermo-total"><span>Corrected G</span>${total}</div>`
+    + `<div class="run-thermo-note">1 Ha = ${number(HARTREE_TO_KCAL_PER_MOL, 4)} kcal/mol · `
+    + `standard state ${number(STANDARD_STATE_CORRECTION_KCAL_PER_MOL)} kcal/mol `
+    + `(298.15 K, RT ln 24.465)</div>`
+    + warnings;
+}
+
+/**
+ * Mount the panel and keep its two correction toggles live. Passing `null`
+ * (a new run, or an output with no thermochemistry) hides and clears it.
+ */
+export function mountThermochemistryView(container, parsed) {
+  if (!container) return;
+  const thermochemistry = parsed?.thermochemistry;
+  const hasThermochemistry = thermochemistry
+    && (Number.isFinite(thermochemistry.freeEnergyHartree)
+      || Number.isFinite(thermochemistry.temperatureK));
+  if (!hasThermochemistry) {
+    container.hidden = true;
+    container.innerHTML = '';
+    return;
+  }
+  const options = { quasiRRHO: true, standardState: true };
+  const render = () => {
+    const report = buildThermochemistryReport(parsed, options);
+    container.innerHTML = thermochemistryPanelHtml(report);
+    container.hidden = false;
+    for (const input of container.querySelectorAll('input[data-thermo-toggle]')) {
+      input.addEventListener('change', () => {
+        options[input.dataset.thermoToggle] = input.checked;
+        render();
+      });
+    }
+  };
+  render();
+}

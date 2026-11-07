@@ -24,7 +24,9 @@ format are implemented and covered by tests. Real Gaussian execution requires a 
   downstream run folder and adds `%OldChk` plus `Geom=Check Guess=Read` to the route.
 - **Gaussian I/O** — deterministic `.gjf` builder, `.xyz`/`.mol`/`.sdf`/`.gjf`/`.com` structure
   import, output discovery (`.out` or `.log`), and a parser for termination, SCF, optimization,
-  frequencies/imaginary modes, thermochemistry and the final correlated energy.
+  frequencies/imaginary modes, the complete thermochemistry block, and the final correlated
+  energy. Quasi-RRHO and 1 atm → 1 M standard-state corrections are shown as separate,
+  individually switchable audit lines in the run console.
 - **Gates from output, never exit codes** — a task passes only when the parsed output satisfies
   every requested gate.
 - **Dry run by default** — writes a labelled fixture, so the runner, parser and gate path can be

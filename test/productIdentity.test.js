@@ -176,6 +176,27 @@ describe('storage identifiers carry the current product name', () => {
   });
 });
 
+describe('licensing', () => {
+  it('ships the Apache 2.0 text and declares it in package.json', () => {
+    expect(pkg.license).toBe('Apache-2.0');
+    const licence = read('LICENSE');
+    expect(licence).toContain('Apache License');
+    expect(licence).toContain('Version 2.0, January 2004');
+    expect(licence).toContain('END OF TERMS AND CONDITIONS');
+  });
+
+  it('packages the licence with the application', () => {
+    expect(pkg.build.files).toContain('LICENSE');
+  });
+
+  it('states the licence in the README without granting Gaussian rights', () => {
+    const readme = read('README.md');
+    expect(readme).toContain('Apache License 2.0');
+    expect(readme).toContain('does not grant any right to');
+    expect(readme).toContain('Gaussian, which is licensed separately');
+  });
+});
+
 describe('Gaussian references were not renamed away', () => {
   it('keeps the licence and redistribution boundary in the exported cluster README', () => {
     const source = read('src/shared/clusterExport.js');

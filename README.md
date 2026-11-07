@@ -31,6 +31,8 @@ What is deliberately not in v0.1:
 - Automatic DAG execution (only the selected calculation runs).
 - Condition and loop runtime evaluation. They are drawable and inspectable, not executed.
 - Native `.mol`/`.sdf`/`.xyz` parsing; the runner currently uses a small demo water geometry.
+- The Post-HF final-energy gate is visible but not evaluated; the parser exposes SCF and
+  free-energy records only.
 - A packaged installer. Run from source for now.
 - Any remote execution, job submission, telemetry, or network call.
 

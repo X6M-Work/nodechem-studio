@@ -1,0 +1,138 @@
+ FIXTURE OUTPUT — synthetic Gaussian output, not a real calculation.
+ Hand-written to exercise parser coverage; no Gaussian was run.
+ Entering Gaussian System, Link 0=g16
+ %mem=4GB
+ %nprocshared=4
+
+ Copyright (c) 2016, Gaussian, Inc.  All Rights Reserved.
+
+ Gaussian 16, Revision C.01
+ 7-Apr-2020
+
+ #P B3LYP/6-31G(d) Opt Freq
+
+ Synthetic four-atom coverage fixture
+
+ 0 1
+ C   0.000000    0.000000    0.000000
+ H   0.000000    0.000000    1.090000
+ H   1.026719    0.000000   -0.363000
+ H  -0.513360    0.889165   -0.363000
+
+ Step number   1 out of a maximum of  20
+
+ ---------------------------------------------------------------------
+                     Input orientation:
+ ---------------------------------------------------------------------
+ Center     Atomic      Atomic             Coordinates (Angstroms)
+ Number     Number       Type             X           Y           Z
+ ---------------------------------------------------------------------
+      1          6           0        0.000000    0.000000    0.000000
+      2          1           0        0.000000    0.000000    1.090000
+      3          1           0        1.026719    0.000000   -0.363000
+      4          1           0       -0.513360    0.889165   -0.363000
+ ---------------------------------------------------------------------
+
+ SCF Done:  E(RB3LYP) = -100.490000000     A.U. after    9 cycles
+
+         Item               Value     Threshold  Converged?
+ Maximum Force            0.001200     0.000450     NO
+ RMS     Force            0.000900     0.000300     NO
+ Maximum Displacement     0.004000     0.001800     NO
+ RMS     Displacement     0.002500     0.001200     NO
+ Predicted change in Energy=-3.456789D-05
+
+ Step number   2 out of a maximum of  20
+
+ SCF Done:  E(RB3LYP) = -100.500000000     A.U. after   10 cycles
+
+ ---------------------------------------------------------------------
+                     Standard orientation:
+ ---------------------------------------------------------------------
+ Center     Atomic      Atomic             Coordinates (Angstroms)
+ Number     Number       Type             X           Y           Z
+ ---------------------------------------------------------------------
+      1          6           0        0.000000    0.000000    0.000000
+      2          1           0        0.000000    0.000000    1.089000
+      3          1           0        1.025000    0.000000   -0.362000
+      4          1           0       -0.512000    0.888000   -0.362000
+ ---------------------------------------------------------------------
+
+         Item               Value     Threshold  Converged?
+ Maximum Force            0.000015     0.000450     YES
+ RMS     Force            0.000004     0.000300     YES
+ Maximum Displacement     0.000060     0.001800     YES
+ RMS     Displacement     0.000017     0.001200     YES
+ Predicted change in Energy=-1.234567D-08
+ Optimization completed.
+ Stationary point found.
+
+ Harmonic frequencies (cm**-1), IR intensities
+ Low frequencies ---   -0.0006   -0.0004    0.0010    2.9999    8.5000
+                      1                      2                      3
+                      A                      A                      A
+ Frequencies --    610.0000               1580.0000               3650.0000
+ Red. masses --      1.0823                 1.0874                 1.0812
+ Frc consts  --      0.2374                 1.6011                 8.4885
+ IR Inten    --     67.2384                73.4201                58.9218
+                      4
+                      A
+ Frequencies --   3760.0000
+ Red. masses --      1.0810
+ Frc consts  --      9.0011
+ IR Inten    --     45.1200
+
+ Mulliken charges and spin densities:
+               1
+     1  C   -0.120000    0.000000
+     2  H    0.030000    0.000000
+     3  H    0.040000    0.000000
+     4  H    0.050000    0.000000
+
+ Löwdin charges:
+     1  C   -0.100000
+     2  H    0.025000
+     3  H    0.035000
+     4  H    0.040000
+
+ =======================================================================
+  Natural Population Analysis
+ =======================================================================
+     Atom No    Natural    -------------------------------------------------
+                Charge         Core      Valence    Rydberg      Total
+ =======================================================================
+      C  1     -0.110000      1.99973     4.10000    0.00000     6.10000
+      H  2      0.027500      0.00000     0.97250    0.00000     0.97250
+      H  3      0.037500      0.00000     0.96250    0.00000     0.96250
+      H  4      0.045000      0.00000     0.95500    0.00000     0.95500
+ =======================================================================
+
+ ESP charges:
+     1  C   -0.080000
+     2  H    0.020000
+     3  H    0.030000
+     4  H    0.030000
+
+ Dipole moment (field-independent basis, Debye):
+    X=              0.0000    Y=              0.0000    Z=              0.1234  Tot=              0.1234
+
+ T1 Diagnostic:  0.012345
+
+ There are   34 basis functions,   60 primitive gaussians,   34 cartesian basis functions
+ NBasis=    34 NAE=     8 NBF=    34 NBO=    14
+ the tester use up to    4 processors via shared memory.
+ Job cpu time:       0 days  0 hours  0 minutes  1.2 seconds.
+ Elapsed time:       0 days  0 hours  0 minutes  1.5 seconds.
+
+ Sum of electronic and thermal Free Energies=        -100.509670
+ Zero-point correction=                           0.011552 (Hartree/Particle)
+ Thermal correction to Energy=                    0.016860
+ Thermal correction to Enthalpy=                 0.017804
+ Thermal correction to Gibbs Free Energy=       -0.009670
+ Sum of electronic and zero-point Energies=    -100.488448
+ Sum of electronic and thermal Energies=       -100.483140
+ Sum of electronic and thermal Enthalpies=     -100.482196
+
+ Temperature   298.150 Kelvin.  Pressure   1.00000 Atm.
+
+ Normal termination of Gaussian 16 at Fri Nov  7 12:00:00 2026.

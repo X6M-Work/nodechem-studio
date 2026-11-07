@@ -49,6 +49,32 @@ interrupted task is reconciled on startup instead of being reported as complete.
 - **Gates that cannot be judged** mark the task `needs-review` and block its dependents. They
   never auto-pass.
 
+## Default route
+
+New projects start from **B3LYP-D3(BJ)/def2-SVP**
+(`#p B3LYP/def2-SVP ... EmpiricalDispersion=GD3BJ`). The old `B3LYP/6-31G(d)` pair
+with dispersion set to `None` is a 1990s choice: B3LYP has no dispersion term of its
+own, and the project knowledge base treats dispersion as mandatory for non-covalent
+contacts. The default changed because leaving it uncorrected silently produces wrong
+conformational and interaction energies for exactly the weak interactions most
+workflows are built to study.
+
+B3LYP-D3(BJ)/def2-SVP was chosen over `r²SCAN-3c` because it is available in every
+Gaussian 16 revision, keeps the functional and basis independently selectable, and
+costs little more than the legacy pair while adding the D3(BJ) correction. `r²SCAN-3c`
+is an attractive screening composite, but it depends on a recent Gaussian 16 revision
+and bundles its own fixed basis, so it is a poorer compatibility default for a tool
+that drives an unknown local installation.
+
+Selecting a functional without built-in dispersion defaults **Dispersion** to
+`D3(BJ)` (`GD3BJ`); functionals that already carry dispersion, such as ωB97X-D, keep
+`None` so the correction is not applied twice. The inspector's **Route preset** menu
+keeps the clearly labelled **Legacy (reproduce a paper)** preset, which restores
+`B3LYP/6-31G(d)` with no dispersion and reproduces the pre-change input byte for
+byte. Existing project files are never rewritten on open: they keep their saved
+routes. A new project's blocks use the modern route, while a block added to a project
+that already saved its own defaults keeps that project's choice.
+
 ## Requirements
 
 - Node.js 22 or newer and npm 10 or newer.

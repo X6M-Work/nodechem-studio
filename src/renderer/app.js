@@ -11,6 +11,14 @@ import {
   outputNameFor,
 } from '../shared/gaussianInput.js';
 import { defaultGates, defaultSettings } from '../shared/projectSchema.js';
+import {
+  MODERN_ROUTE_PRESET,
+  ROUTE_PRESETS,
+  applyRoutePreset,
+  defaultDispersionFor,
+  dispersionForMethodChange,
+  routePresetIdFor,
+} from '../shared/routePresets.js';
 import { parseStructure } from '../shared/structureImport.js';
 
 const desktop = window.desktop || null;
@@ -41,7 +49,7 @@ const METHODS = [
   ['PBE0', 'PBE0'], ['MP2', 'MP2'], ['CCSD(T)', 'CCSD(T)'],
 ];
 const BASIS_SETS = [
-  ['6-31G(d)', '6-31G(d)'], ['6-311+G(d,p)', '6-311+G(d,p)'],
+  ['def2-SVP', 'def2-SVP'], ['6-31G(d)', '6-31G(d)'], ['6-311+G(d,p)', '6-311+G(d,p)'],
   ['def2-TZVP', 'def2-TZVP'], ['cc-pVTZ', 'cc-pVTZ'], ['SDD', 'SDD'],
 ];
 const JOB_TYPES = [
@@ -85,8 +93,8 @@ const project = {
     geometry: { source: 'demo', file: '', format: '' },
   },
   defaults: {
-    method: 'B3LYP',
-    basis: '6-31G(d)',
+    method: MODERN_ROUTE_PRESET.method,
+    basis: MODERN_ROUTE_PRESET.basis,
     memory: '4',
     memoryUnit: 'GB',
     nproc: '4',
@@ -762,6 +770,10 @@ function calcInspector(node) {
   ].join(''));
 
   const methodGroup = group('Method & basis', `${s.method}/${s.basis}`, true, [
+    selectField('Route preset', 'routePreset', [
+      ['', 'Custom'],
+      ...ROUTE_PRESETS.map((preset) => [preset.id, preset.label]),
+    ], routePresetIdFor(s)),
     selectField('Method', 'method', METHODS, s.method),
     selectField('Basis set', 'basis', BASIS_SETS, s.basis),
     selectField('Dispersion', 'dispersion', DISPERSIONS, s.dispersion),
@@ -1203,6 +1215,15 @@ function updateNodeField(node, key, value) {
     node.settings.gates[key] = value === '' ? null : Number(value);
     return;
   }
+  if (key === 'routePreset') {
+    const preset = ROUTE_PRESETS.find((item) => item.id === value);
+    if (!preset) return;
+    const next = applyRoutePreset(node.settings, preset.id);
+    node.settings.method = next.method;
+    node.settings.basis = next.basis;
+    node.settings.dispersion = next.dispersion;
+    return;
+  }
   if (key in node.settings) {
     if (key === 'solvation') node.settings.solvation = Boolean(value);
     else if (['charge', 'multiplicity', 'imaginary', 'minMagnitude'].includes(key)) {
@@ -1210,6 +1231,9 @@ function updateNodeField(node, key, value) {
     } else if (key === 'jobType') {
       node.settings.jobType = value;
       node.kind = kindForJob(value);
+    } else if (key === 'method') {
+      node.settings.method = value;
+      node.settings.dispersion = dispersionForMethodChange(value, node.settings.dispersion);
     } else {
       node.settings[key] = value;
     }
@@ -1594,6 +1618,8 @@ function renderDrawer() {
       </div>
       <div class="callout">Fragment order maps to <code>(Fragment=N)</code> in the exported route. Charge and multiplicity parity is checked by the real app.</div>`;
   } else {
+    const defaultDispersion = defaultDispersionFor(draft.method);
+    const defaultRoute = `#p ${draft.method}/${draft.basis} Opt${defaultDispersion ? ` EmpiricalDispersion=${defaultDispersion}` : ''}`;
     body = `
       <div class="form-grid">
         ${drawerSelect('Default method', 'method', METHODS, draft.method)}
@@ -1604,7 +1630,7 @@ function renderDrawer() {
       </div>
       <div class="form-section" style="margin-top:14px">
         <div class="section-label">Default route</div>
-        <div class="code-block">#p ${esc(draft.method)}/${esc(draft.basis)} Opt</div>
+        <div class="code-block">${esc(defaultRoute)}</div>
       </div>
       <div class="callout">Defaults apply to <strong>new</strong> blocks. Existing blocks keep their own parameter snapshot, exactly like a workflow task.</div>`;
   }

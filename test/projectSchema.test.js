@@ -167,6 +167,9 @@ describe('project schema v1 — legacy migration', () => {
     const tsFreq = project.nodes.find((node) => node.id === 'ts-freq');
     expect(tsFreq.checkpointFrom).toBe('ts-opt');
     expect(tsFreq.settings.jobType).toBe('Freq');
+    expect(tsFreq.settings.method).toBe('B3LYP');
+    expect(tsFreq.settings.basis).toBe('6-31G(d)');
+    expect(tsFreq.settings.dispersion).toBe('');
     expect(tsFreq.settings.gates).toEqual({
       termination: true,
       scf: true,
@@ -203,7 +206,7 @@ describe('project schema v1 — legacy migration', () => {
     const result = validateProject(raw);
     expect(result.ok).toBe(true);
     expect(result.project.defaults).toEqual({
-      method: 'B3LYP', basis: '6-31G(d)', memory: '4', memoryUnit: 'GB', nproc: 4,
+      method: 'B3LYP', basis: 'def2-SVP', memory: '4', memoryUnit: 'GB', nproc: 4,
     });
     expect(result.project.molecule.fragments).toEqual([]);
     expect(result.project.nodes[1].settings.checkpoint).toBe('');
@@ -512,7 +515,8 @@ describe('project text parsing', () => {
 describe('schema helpers', () => {
   it('exposes defaults consistent with the renderer', () => {
     expect(defaultSettings()).toMatchObject({
-      jobType: 'Opt', method: 'B3LYP', basis: '6-31G(d)', memory: '4', memoryUnit: 'GB', nproc: '4',
+      jobType: 'Opt', method: 'B3LYP', basis: 'def2-SVP', dispersion: 'GD3BJ',
+      memory: '4', memoryUnit: 'GB', nproc: '4',
     });
     expect(defaultGates()).toEqual({
       termination: true, scf: true, imaginary: null, minMagnitude: 50, thermo: false, finalEnergy: false,

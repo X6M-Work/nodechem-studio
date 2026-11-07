@@ -9,6 +9,12 @@ import { QueueManager } from './runner/queue.js';
 import { XtbRunner } from './runner/xtbRunner.js';
 import { writeClusterExport, importClusterExport } from './runner/clusterFiles.js';
 import { parseProjectText, stringifyProject, summarizeErrors } from '../src/shared/projectSchema.js';
+import {
+  PROJECT_EXTENSIONS,
+  classifySavePath,
+  projectFileName,
+  withProjectExtension,
+} from '../src/shared/projectFile.js';
 import { engineOrDefault } from '../src/shared/engines/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -210,7 +216,7 @@ async function openProject() {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Open NodeChem Studio project',
     properties: ['openFile'],
-    filters: [{ name: 'NodeChem Studio project', extensions: ['json', 'ghproject'] }],
+    filters: [{ name: 'NodeChem Studio project', extensions: PROJECT_EXTENSIONS }],
   });
   if (result.canceled) return { canceled: true };
   const filePath = result.filePaths[0];
@@ -229,13 +235,7 @@ async function openProject() {
 }
 
 function suggestedProjectName(project) {
-  const base = String(project?.name || 'untitled')
-    .replace(/[^A-Za-z0-9._ -]+/g, '')
-    .trim()
-    .slice(0, 60)
-    .replace(/\s+/g, '-')
-    .toLowerCase();
-  return `${base || 'untitled'}.ghproject.json`;
+  return projectFileName(project);
 }
 
 async function saveProject(project, filePath) {
@@ -244,20 +244,25 @@ async function saveProject(project, filePath) {
     return { canceled: false, error: projectFailure(serialized) };
   }
   let target = typeof filePath === 'string' && filePath.trim() ? filePath.trim() : null;
-  if (target && !/\.json$/i.test(target)) {
-    return { canceled: false, error: { message: 'A project file must end in .json.' } };
+  const pathKind = classifySavePath(target);
+  if (pathKind.kind === 'invalid') {
+    return { canceled: false, error: { message: pathKind.message } };
   }
   if (!target) {
     const result = await dialog.showSaveDialog(mainWindow, {
       title: 'Save NodeChem Studio project',
       defaultPath: path.join(app.getPath('documents'), suggestedProjectName(project)),
-      filters: [{ name: 'NodeChem Studio project', extensions: ['json'] }],
+      filters: [{ name: 'NodeChem Studio project', extensions: [PROJECT_EXTENSIONS[0]] }],
     });
     if (result.canceled || !result.filePath) return { canceled: true };
-    target = result.filePath;
+    target = withProjectExtension(result.filePath);
   }
   await fsp.writeFile(target, serialized.text, 'utf8');
-  return { canceled: false, path: target, project: serialized.project };
+  return {
+    canceled: false,
+    path: target,
+    project: serialized.project,
+  };
 }
 
 async function exportGaussianInput({ filename, text } = {}) {

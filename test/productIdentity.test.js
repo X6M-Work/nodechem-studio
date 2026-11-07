@@ -140,7 +140,11 @@ describe('packaged product identity', () => {
       '.github/workflows/ci.yml',
       // COLLABORATION.md is handled separately: it names the unchanged GitHub
       // repository directory, which is not product branding.
-      ...productFiles('docs').filter((rel) => rel.endsWith('.md') && !rel.endsWith('COLLABORATION.md')),
+      // PROJECT-FORMAT.md is the normative spec: it must quote the pinned
+      // userData folder name, which is likewise not branding.
+      ...productFiles('docs').filter((rel) => rel.endsWith('.md')
+        && !rel.endsWith('COLLABORATION.md')
+        && !rel.endsWith('PROJECT-FORMAT.md')),
     ];
     const stale = docsAndConfig.filter((rel) => /gaussian-node-studio|gaussian-studio/i.test(read(rel)));
     expect(stale).toEqual([]);

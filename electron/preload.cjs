@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld('desktop', {
   openProject: () => ipcRenderer.invoke('project:open'),
   saveProject: (project, filePath) => ipcRenderer.invoke('project:save', project, filePath),
   exportInput: (payload) => ipcRenderer.invoke('input:export', payload),
+  exportCluster: (payload) => ipcRenderer.invoke('cluster:export', payload),
+  importCluster: () => ipcRenderer.invoke('cluster:import'),
   setDirty: (dirty) => ipcRenderer.send('window:dirty', Boolean(dirty)),
   pickExecutable: () => ipcRenderer.invoke('gaussian:pick-executable'),
   preflight: (config) => ipcRenderer.invoke('gaussian:preflight', config),

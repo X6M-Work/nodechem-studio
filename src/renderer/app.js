@@ -20,6 +20,7 @@ import {
   routePresetIdFor,
 } from '../shared/routePresets.js';
 import { parseStructure } from '../shared/structureImport.js';
+import { runClusterAction } from './clusterExport.js';
 
 const desktop = window.desktop || null;
 
@@ -2390,6 +2391,15 @@ function handleAction(action, element) {
     case 'open-project': openProject(); break;
     case 'save-project': saveProject(); break;
     case 'export': exportSelectedInput(); break;
+    case 'cluster':
+      runClusterAction({
+        op: element.dataset.clusterOp,
+        format: element.dataset.clusterFormat,
+        project: state.project,
+        buildTasks: buildWorkflowTasks,
+        notify: toast,
+      });
+      break;
     case 'import-log': toast('Runner output is parsed automatically. Native log import is the next milestone.'); break;
     case 'view-output': openRunConsole(); break;
     case 'project-menu': toast('Use Open or Save in the top bar for native project files.'); break;

@@ -3,9 +3,11 @@ import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { RunManager } from '../electron/runner/runManager.js';
+import { readOutputFile } from '../electron/runner/gaussianRunner.js';
 import { makeFixtureOutput } from '../src/shared/fixtureOutput.js';
 
 const roots = [];
+const MIB = 1024 * 1024;
 
 async function makeManager(options = {}) {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'gaussian-studio-run-'));
@@ -21,15 +23,62 @@ async function fakeExecutable(root) {
   return file;
 }
 
-function waitForDone(events) {
+function waitForDone(events, timeoutMs = 3000) {
   return new Promise((resolve, reject) => {
     const started = Date.now();
     const timer = setInterval(() => {
       const done = events.find((event) => event.type === 'done');
       if (done) { clearInterval(timer); resolve(done); }
-      else if (Date.now() - started > 3000) { clearInterval(timer); reject(new Error('run did not finish')); }
+      else if (Date.now() - started > timeoutMs) { clearInterval(timer); reject(new Error('run did not finish')); }
     }, 20);
   });
+}
+
+// Synthetic output that reproduces the shape of a large Gaussian log without
+// pretending to be a calculation. Only the truncation path reads it.
+const SYNTHETIC_LARGE_HEADER = [
+  ' FIXTURE OUTPUT — synthetic, not a Gaussian calculation',
+  ' This file exists only to exercise the >32 MiB truncation path; no Gaussian ran.',
+  '',
+  ' Entering Gaussian System, Link 0=g16',
+  '',
+  ' #P B3LYP/6-31G(d) Opt Freq',
+  '',
+  ' Synthetic large-output fixture',
+  '',
+  ' Symbolic Z-matrix:',
+  ' O   0.000000    0.000000    0.117300',
+  ' H   0.000000    0.757200   -0.469200',
+  ' H   0.000000   -0.757200   -0.469200',
+  '',
+].join('\n');
+
+const SYNTHETIC_LARGE_TAIL = [
+  ' SCF Done:  E(RB3LYP) =  -76.000000000     A.U. after    8 cycles',
+  ' Optimization completed.',
+  ' Stationary point found.',
+  '',
+  ' Harmonic frequencies (cm**-1), IR intensities',
+  ' Frequencies --    610.0000   1580.0000   3650.0000   3760.0000',
+  ' Red. masses --',
+  '',
+  ' Sum of electronic and thermal Free Energies=        -76.020000',
+  '',
+  ' Normal termination of Gaussian 16 at Fri Nov  7 12:00:00 2026.',
+  '',
+].join('\n');
+
+async function writeSyntheticLargeLog(file, targetBytes = 33 * MIB) {
+  const padding = ` ${'x'.repeat(4000)}\n`;
+  const chunk = padding.repeat(64);
+  const chunkBytes = Buffer.byteLength(chunk, 'utf8');
+  let written = Buffer.byteLength(SYNTHETIC_LARGE_HEADER, 'utf8');
+  await fsp.writeFile(file, SYNTHETIC_LARGE_HEADER, 'utf8');
+  while (written < targetBytes) {
+    await fsp.appendFile(file, chunk, 'utf8');
+    written += chunkBytes;
+  }
+  await fsp.appendFile(file, SYNTHETIC_LARGE_TAIL, 'utf8');
 }
 
 afterEach(async () => {
@@ -58,6 +107,8 @@ describe('RunManager dry-run path', () => {
     expect(runJson.status).toBe('completed');
     expect(runJson.gates.overall).toBe('pass');
     expect(runJson.parsed.termination).toBe('Normal termination of Gaussian');
+    expect(runJson.parsed.complete).toBe(true);
+    expect(runJson.parsed.bytes.windows.map((window) => window.name)).toEqual(['fixture']);
   });
 
   it('lists completed runs newest first', async () => {
@@ -152,4 +203,123 @@ describe('RunManager real-run record', () => {
     expect(done.record.gates.overall).toBe('pass');
     expect(done.record.parsed.finalEnergy.source).toBe('post-hf');
   });
+});
+
+describe('RunManager large-output handling', () => {
+  it('records a complete parse and the whole byte range for a small file', async () => {
+    const { manager, events, root } = await makeManager({
+      createRunner: () => ({
+        cancel() {},
+        async run({ cwd }) {
+          const file = path.join(cwd, 'synthetic-small.log');
+          const text = makeFixtureOutput();
+          await fsp.writeFile(file, text, 'utf8');
+          const read = await readOutputFile(file);
+          return {
+            exitCode: 0,
+            signal: null,
+            cancelled: false,
+            outputPath: file,
+            outputName: 'synthetic-small.log',
+            outputSource: 'file',
+            truncated: read.truncated,
+            outputText: read.text,
+            outputBytes: read.byteRange,
+            stdout: '',
+            stderr: '',
+          };
+        },
+      }),
+    });
+    const executable = await fakeExecutable(root);
+    const response = await manager.start({
+      title: 'small synthetic output',
+      inputText: '%Chk=job.chk\n#p HF/STO-3G SP\n\nJob\n\n0 1\nH 0 0 0\n',
+      inputName: 'job.gjf',
+      outputName: 'job.out',
+      executable,
+      dryRun: false,
+      gates: {},
+    });
+    const done = await waitForDone(events);
+    expect(done.record.status).toBe('completed');
+
+    const runJson = JSON.parse(await fsp.readFile(path.join(response.runDir, 'run.json'), 'utf8'));
+    expect(runJson.parsed.complete).toBe(true);
+    expect(runJson.parsed.bytes.truncated).toBe(false);
+    expect(runJson.parsed.bytes.bytesRead).toBe(runJson.parsed.bytes.size);
+    expect(runJson.parsed.bytes.windows.map((window) => window.name)).toEqual(['full']);
+    expect(runJson.gates.overall).toBe('pass');
+  });
+
+  it('never passes a truncated >32 MiB parse and records the byte ranges it read', async () => {
+    const { manager, events, root } = await makeManager({
+      createRunner: () => ({
+        cancel() {},
+        async run({ cwd }) {
+          const file = path.join(cwd, 'synthetic-large.log');
+          await writeSyntheticLargeLog(file);
+          const read = await readOutputFile(file);
+          return {
+            exitCode: 0,
+            signal: null,
+            cancelled: false,
+            outputPath: file,
+            outputName: 'synthetic-large.log',
+            outputSource: 'file',
+            truncated: read.truncated,
+            outputText: read.text,
+            outputBytes: read.byteRange,
+            stdout: '',
+            stderr: '',
+          };
+        },
+      }),
+    });
+    const executable = await fakeExecutable(root);
+    const response = await manager.start({
+      title: 'large synthetic output',
+      inputText: '%Chk=job.chk\n#p B3LYP/6-31G(d) Opt Freq\n\nJob\n\n0 1\nO 0 0 0\n',
+      inputName: 'job.gjf',
+      outputName: 'job.out',
+      executable,
+      dryRun: false,
+      gates: { expectedImaginary: 0, requireFrequency: true, requireThermochemistry: true, requireFinalEnergy: true },
+    });
+    const done = await waitForDone(events, 120000);
+    expect(done.runId).toBe(response.runId);
+    // Truncated output is never a completed run, even with a normal termination.
+    expect(done.record.status).toBe('needs-review');
+    expect(done.record.truncated).toBe(true);
+
+    const runJson = JSON.parse(await fsp.readFile(path.join(response.runDir, 'run.json'), 'utf8'));
+    expect(runJson.truncated).toBe(true);
+    expect(runJson.status).toBe('needs-review');
+    expect(runJson.parsed.termination).toBe('Normal termination of Gaussian');
+    expect(runJson.parsed.complete).toBe(false);
+    expect(runJson.parsed.bytes.truncated).toBe(true);
+    expect(runJson.parsed.bytes.size).toBeGreaterThan(32 * MIB);
+    expect(runJson.parsed.bytes.bytesRead).toBe(32 * MIB);
+    expect(runJson.parsed.bytes.windows).toHaveLength(2);
+
+    // The head window supplied the banner, route echo and initial geometry.
+    const [headWindow, tailWindow] = runJson.parsed.bytes.windows;
+    expect(headWindow).toMatchObject({ name: 'head', start: 0, end: 1 * MIB, bytes: 1 * MIB });
+    expect(headWindow.supplied).toEqual(expect.arrayContaining(['banner', 'route', 'geometry']));
+
+    // The tail window supplied termination, the final SCF and the frequency/thermo blocks.
+    expect(tailWindow.name).toBe('tail');
+    expect(tailWindow.end).toBe(runJson.parsed.bytes.size);
+    expect(tailWindow.supplied).toEqual(expect.arrayContaining(['termination', 'scf', 'frequencies', 'thermochemistry']));
+    expect(runJson.parsed.scf.energyHartree).toBeCloseTo(-76);
+    expect(runJson.parsed.finalEnergy).toEqual({ hartree: -76, source: 'scf' });
+    expect(runJson.parsed.frequencies.count).toBe(4);
+    expect(runJson.parsed.thermochemistry.freeEnergyHartree).toBeCloseTo(-76.02);
+
+    // A partial parse is structurally incapable of passing the gates.
+    const completeGate = runJson.gates.gates.find((gate) => gate.name === 'Output complete');
+    expect(completeGate).toMatchObject({ required: true, result: 'unknown' });
+    expect(runJson.gates.overall).toBe('unknown');
+    expect(runJson.gates.overall).not.toBe('pass');
+  }, 180000);
 });

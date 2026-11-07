@@ -3,9 +3,12 @@ import fsp from 'node:fs/promises';
 import fs from 'node:fs';
 import path from 'node:path';
 import { discoverOutput, outputCandidates } from './outputDiscovery.js';
+import { outputEvidence } from '../../src/shared/gaussianOutput.js';
 
 const MAX_TAIL_BYTES = 256 * 1024;
 const MAX_FINAL_BYTES = 32 * 1024 * 1024;
+const HEAD_WINDOW_BYTES = 1 * 1024 * 1024;
+const TAIL_WINDOW_BYTES = MAX_FINAL_BYTES - HEAD_WINDOW_BYTES;
 
 async function readRange(filePath, offset, maxBytes) {
   const handle = await fsp.open(filePath, 'r');
@@ -23,6 +26,74 @@ async function readRange(filePath, offset, maxBytes) {
   } finally {
     await handle.close();
   }
+}
+
+/** Drop a fragment that starts or ends mid-line: the parser must see whole lines. */
+function trimPartialLastLine(text) {
+  const index = text.lastIndexOf('\n');
+  return index === -1 ? '' : text.slice(0, index + 1);
+}
+
+function trimPartialFirstLine(text) {
+  const index = text.indexOf('\n');
+  return index === -1 ? '' : text.slice(index + 1);
+}
+
+/**
+ * Read a finished output file for the parser.
+ *
+ * Files at or under `maxBytes` are read whole. Larger files are read as two
+ * windows inside the same byte budget: a head window (version banner, route
+ * echo, initial geometry) and a tail window (termination, final SCF, frequency
+ * and thermochemistry blocks). Partial lines at either boundary are dropped so
+ * the parser never sees half a line, and the byte ranges actually read are
+ * returned so the run record can show a reviewer what the parse was based on.
+ */
+export async function readOutputFile(filePath, {
+  maxBytes = MAX_FINAL_BYTES,
+  headBytes = HEAD_WINDOW_BYTES,
+  tailBytes = TAIL_WINDOW_BYTES,
+} = {}) {
+  const stat = await fsp.stat(filePath);
+  const size = stat.size;
+  if (size <= maxBytes) {
+    const text = await fsp.readFile(filePath, 'utf8');
+    return {
+      text,
+      truncated: false,
+      byteRange: {
+        size,
+        bytesRead: size,
+        truncated: false,
+        windows: [{ name: 'full', start: 0, end: size, bytes: size, supplied: outputEvidence(text) }],
+      },
+    };
+  }
+
+  const headLength = Math.min(headBytes, maxBytes, size);
+  const tailLength = Math.min(tailBytes, Math.max(maxBytes - headLength, 0), size);
+  const tailStart = Math.max(headLength, size - tailLength);
+
+  const headText = headLength > 0
+    ? trimPartialLastLine((await readRange(filePath, 0, headLength)).text)
+    : '';
+  const tailText = tailStart < size
+    ? trimPartialFirstLine((await readRange(filePath, tailStart, size - tailStart)).text)
+    : '';
+
+  return {
+    text: `${headText}${headText && !headText.endsWith('\n') ? '\n' : ''}${tailText}`,
+    truncated: true,
+    byteRange: {
+      size,
+      bytesRead: headLength + (size - tailStart),
+      truncated: true,
+      windows: [
+        { name: 'head', start: 0, end: headLength, bytes: headLength, supplied: outputEvidence(headText) },
+        { name: 'tail', start: tailStart, end: size, bytes: size - tailStart, supplied: outputEvidence(tailText) },
+      ],
+    },
+  };
 }
 
 /**
@@ -111,19 +182,17 @@ export class GaussianRunner {
     await poll();
     const discovered = await discoverOutput({ cwd, inputName, outputName, settleMs: 200 });
     let outputText = '';
+    let outputBytes = null;
     let outputFile = null;
     let outputSource = 'stdout';
     let truncated = false;
     if (discovered) {
       outputFile = discovered.name;
       outputSource = 'file';
-      const stat = await fsp.stat(discovered.file).catch(() => null);
-      if (stat && stat.size > MAX_FINAL_BYTES) {
-        truncated = true;
-        outputText = (await readRange(discovered.file, stat.size - MAX_FINAL_BYTES, MAX_FINAL_BYTES)).text;
-      } else {
-        outputText = await fsp.readFile(discovered.file, 'utf8');
-      }
+      const read = await readOutputFile(discovered.file);
+      outputText = read.text;
+      outputBytes = read.byteRange;
+      truncated = read.truncated;
     } else {
       outputText = `${stdout}\n${stderr}`.trim();
     }
@@ -136,6 +205,7 @@ export class GaussianRunner {
       outputName: outputFile,
       outputSource,
       truncated,
+      outputBytes,
       outputText,
       stdout,
       stderr,

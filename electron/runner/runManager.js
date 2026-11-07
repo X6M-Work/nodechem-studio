@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { GaussianRunner } from './gaussianRunner.js';
 import { stageCheckpoint } from './checkpoint.js';
-import { parseGaussianOutput, evaluateGates } from '../../src/shared/gaussianOutput.js';
+import { parseGaussianOutput, evaluateGates, outputEvidence } from '../../src/shared/gaussianOutput.js';
 import { makeFixtureOutput } from '../../src/shared/fixtureOutput.js';
 
 const SAFE_INPUT = /^[A-Za-z0-9._-]+\.(gjf|com)$/i;
@@ -93,6 +93,7 @@ export class RunManager {
       outputFile: null,
       outputSource: null,
       truncated: false,
+      outputBytes: null,
       executable: dryRun ? null : payload.executable,
       scratchDir,
       checkpointHandoff,
@@ -147,7 +148,18 @@ export class RunManager {
       outputText = makeFixtureOutput({ imaginary: Number(expected) > 0 ? 1 : 0 });
       await fsp.writeFile(path.join(runDir, payload.outputName), outputText, 'utf8');
       this.emit({ type: 'output', runId, text: outputText });
-      context.outputMeta = { outputFile: payload.outputName, outputSource: 'fixture', truncated: false };
+      const fixtureBytes = Buffer.byteLength(outputText, 'utf8');
+      context.outputMeta = {
+        outputFile: payload.outputName,
+        outputSource: 'fixture',
+        truncated: false,
+        outputBytes: {
+          size: fixtureBytes,
+          bytesRead: fixtureBytes,
+          truncated: false,
+          windows: [{ name: 'fixture', start: 0, end: fixtureBytes, bytes: fixtureBytes, supplied: outputEvidence(outputText) }],
+        },
+      };
       exitCode = 0;
     } else {
       const runner = this.createRunner();
@@ -167,6 +179,7 @@ export class RunManager {
         outputFile: result.outputName || null,
         outputSource: result.outputSource || 'stdout',
         truncated: Boolean(result.truncated),
+        outputBytes: result.outputBytes || null,
       };
       if (result.cancelled || context.cancelled) {
         await this.finish(context, {
@@ -183,7 +196,10 @@ export class RunManager {
       }
     }
 
-    const parsed = parseGaussianOutput(outputText);
+    const parsed = parseGaussianOutput(outputText, {
+      truncated: Boolean(context.outputMeta?.truncated),
+      byteRange: context.outputMeta?.outputBytes || null,
+    });
     const gates = evaluateGates(parsed, {
       expectedImaginary: payload.gates?.expectedImaginary ?? null,
       minMagnitude: payload.gates?.minMagnitude ?? 50,

@@ -20,6 +20,8 @@
  * condition node's `unknown` policy decides what to do with that.
  */
 
+import { terminationCodeOf } from './engines/canonical.js';
+
 export class ConditionError extends Error {}
 
 const FIELD_ALIASES = {
@@ -30,11 +32,11 @@ export function conditionFields(parsed, gates = null) {
   const frequencies = parsed?.frequencies || {};
   const scf = parsed?.scf || {};
   const optimization = parsed?.optimization || {};
-  const termination = parsed?.termination || 'No termination marker';
+  const termination = terminationCodeOf(parsed);
   const minImaginary = Number.isFinite(frequencies.minImaginary) ? frequencies.minImaginary : null;
   return {
-    normalTermination: termination === 'Normal termination of Gaussian',
-    errorTermination: termination === 'Error termination',
+    normalTermination: termination === 'normal',
+    errorTermination: termination === 'error',
     scfConverged: scf.status === 'converged',
     scfFailed: scf.status === 'failed',
     optimizationCompleted: Boolean(optimization.completed),

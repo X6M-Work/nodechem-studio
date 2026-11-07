@@ -7,10 +7,9 @@ import {
   topologicalOrder,
 } from '../../src/shared/workflowGraph.js';
 import { conditionFields, evaluateCondition } from '../../src/shared/controlFlow.js';
+import { engineFor } from '../../src/shared/engines/index.js';
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-const SAFE_INPUT = /^[A-Za-z0-9._-]+\.(gjf|com)$/i;
-const SAFE_OUTPUT = /^[A-Za-z0-9._-]+\.(out|log)$/i;
 const SAFE_CHECKPOINT = /^[A-Za-z0-9._-]{1,124}\.chk$/i;
 const MAX_INPUT_BYTES = 2 * 1024 * 1024;
 const MAX_TASKS = 500;
@@ -58,13 +57,18 @@ function taskRecord(raw, index) {
   const nodeId = String(raw?.nodeId || '');
   if (!SAFE_ID.test(nodeId)) throw new Error(`Task ${index + 1} has an invalid node id.`);
   const executable = Boolean(raw?.executable);
+  const engineId = String(raw?.engine || 'gaussian');
+  const engine = engineFor(engineId);
+  const argv = Array.isArray(raw?.argv) ? raw.argv.map(String) : null;
   const inputName = String(raw?.inputName || '');
   const outputName = String(raw?.outputName || '');
   const inputText = String(raw?.inputText || '');
   if (executable) {
-    if (!SAFE_INPUT.test(inputName)) throw new Error(`Task "${nodeId}" must have a safe .gjf or .com input name.`);
-    if (!SAFE_OUTPUT.test(outputName)) throw new Error(`Task "${nodeId}" must have a safe .out or .log output name.`);
-    if (!inputText.trim()) throw new Error(`Task "${nodeId}" has no Gaussian input.`);
+    if (!engine.acceptsInputName(inputName)) {
+      throw new Error(`Task "${nodeId}" must have a safe ${engine.capabilities.inputExtension} input name for ${engine.label}.`);
+    }
+    if (!engine.acceptsOutputName(outputName)) throw new Error(`Task "${nodeId}" must have a safe .out or .log output name.`);
+    if (!inputText.trim()) throw new Error(`Task "${nodeId}" has no ${engine.label} input.`);
     if (Buffer.byteLength(inputText, 'utf8') > MAX_INPUT_BYTES) throw new Error(`Task "${nodeId}" input is larger than 2 MiB.`);
   }
   const checkpointFrom = raw?.checkpointFrom && SAFE_ID.test(String(raw.checkpointFrom.nodeId))
@@ -103,6 +107,8 @@ function taskRecord(raw, index) {
     title: oneLine(raw?.title, 120) || nodeId,
     kind: oneLine(raw?.kind, 32) || 'Calc',
     executable,
+    engine: engine.id,
+    argv,
     status: 'pending',
     attempts: 0,
     runId: null,
@@ -293,9 +299,9 @@ export class QueueManager {
     const executable = String(options.executable || '').trim();
     const scratchDir = String(options.scratchDir || '').trim();
     if (!dryRun) {
-      if (!executable) throw new Error('Choose the licensed Gaussian executable before running the workflow.');
+      if (!executable) throw new Error('Choose the calculation executable before running the workflow.');
       const stat = await fsp.stat(executable).catch(() => null);
-      if (!stat?.isFile()) throw new Error(`Gaussian executable not found: ${executable}`);
+      if (!stat?.isFile()) throw new Error(`Calculation executable not found: ${executable}`);
     }
 
     const id = queueIdFor();
@@ -416,6 +422,8 @@ export class QueueManager {
       const inputText = await fsp.readFile(this.inputPath(queue.id, task.nodeId), 'utf8');
       const response = await this.runManager.start({
         title: task.title,
+        engine: task.engine,
+        argv: task.argv,
         inputText,
         inputName: task.inputName,
         outputName: task.outputName,

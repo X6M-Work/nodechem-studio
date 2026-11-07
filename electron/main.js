@@ -6,8 +6,10 @@ import fsp from 'node:fs/promises';
 import fs from 'node:fs';
 import { RunManager } from './runner/runManager.js';
 import { QueueManager } from './runner/queue.js';
+import { XtbRunner } from './runner/xtbRunner.js';
 import { writeClusterExport, importClusterExport } from './runner/clusterFiles.js';
 import { parseProjectText, stringifyProject, summarizeErrors } from '../src/shared/projectSchema.js';
+import { engineOrDefault } from '../src/shared/engines/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
@@ -88,13 +90,17 @@ function projectFailure(error) {
   };
 }
 
-async function chooseExecutable() {
+async function chooseExecutable(config = {}) {
+  const engine = engineOrDefault(config.engine);
+  const isXtb = engine.id === 'xtb';
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Locate the licensed Gaussian executable',
-    defaultPath: process.platform === 'win32' ? 'C:\\G16W\\g16.exe' : '/usr/local/g16/g16',
+    title: isXtb ? 'Locate the xTB executable' : 'Locate the licensed Gaussian executable',
+    defaultPath: isXtb
+      ? (process.platform === 'win32' ? 'C:\\xtb\\bin\\xtb.exe' : '/usr/local/bin/xtb')
+      : (process.platform === 'win32' ? 'C:\\G16W\\g16.exe' : '/usr/local/g16/g16'),
     properties: ['openFile'],
     filters: process.platform === 'win32'
-      ? [{ name: 'Gaussian for Windows', extensions: ['exe'] }, { name: 'All files', extensions: ['*'] }]
+      ? [{ name: isXtb ? 'xTB executable' : 'Gaussian for Windows', extensions: ['exe'] }, { name: 'All files', extensions: ['*'] }]
       : [{ name: 'All files', extensions: ['*'] }],
   });
   return result.canceled ? null : result.filePaths[0];
@@ -102,6 +108,8 @@ async function chooseExecutable() {
 
 async function preflight(config = {}) {
   const checks = [];
+  const engine = engineOrDefault(config.engine);
+  const isXtb = engine.id === 'xtb';
   const dryRun = Boolean(config.dryRun);
   const executable = String(config.executable || '').trim();
   const scratchDir = String(config.scratchDir || '').trim();
@@ -112,7 +120,23 @@ async function preflight(config = {}) {
   add('architecture', 'Architecture', ['x64', 'arm64'].includes(process.arch), process.arch);
 
   if (dryRun) {
-    add('dry-run', 'Dry-run fixture', true, 'No Gaussian process will be started.');
+    add('dry-run', 'Dry-run fixture', true, `No ${engine.label} process will be started.`);
+  } else if (isXtb) {
+    add('executable', 'xTB executable configured', Boolean(executable), executable || 'Not configured');
+    if (executable) {
+      try {
+        const stat = await fsp.stat(executable);
+        add('executable-exists', 'Executable exists', stat.isFile(), executable);
+        add('executable-name', 'xTB executable', /^xtb(\.exe)?$/i.test(path.basename(executable)),
+          `Found ${path.basename(executable)}`);
+        const parameterPath = XtbRunner.parameterPathFor(executable, config.xtbPath);
+        add('xtb-parameters', 'xTB parameter files found',
+          Boolean(parameterPath) || Boolean(process.env.XTBPATH),
+          parameterPath || process.env.XTBPATH || 'Set XTBPATH to the xTB share/xtb directory');
+      } catch (error) {
+        add('executable-exists', 'Executable exists', false, error.message);
+      }
+    }
   } else {
     add('executable', 'Gaussian executable configured', Boolean(executable), executable || 'Not configured');
     if (executable) {
@@ -312,7 +336,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('cluster:export', (_event, payload) => exportClusterScripts(payload));
   ipcMain.handle('cluster:import', () => importClusterResults());
   ipcMain.on('window:dirty', (_event, dirty) => { windowDirty = Boolean(dirty); });
-  ipcMain.handle('gaussian:pick-executable', chooseExecutable);
+  ipcMain.handle('gaussian:pick-executable', (_event, config) => chooseExecutable(config || {}));
   ipcMain.handle('gaussian:preflight', (_event, config) => preflight(config));
   ipcMain.handle('gaussian:run', (_event, payload) => runManager.start(payload));
   ipcMain.handle('gaussian:cancel', (_event, runId) => runManager.cancel(runId));

@@ -18,12 +18,16 @@ export const SCHEMA_VERSION = 1;
 
 import { isElementSymbol } from './elements.js';
 import { MODERN_ROUTE_PRESET, defaultDispersionFor } from './routePresets.js';
+import { ENGINE_IDS } from './engines/index.js';
+import { XTB_METHODS, XTB_OPT_LEVELS } from './engines/xtb.js';
 import {
   DEFAULT_TS_FORCE_CONSTANTS,
   TS_FORCE_CONSTANT_IDS,
   checkTsForceConstants,
   hasOptKeyword,
 } from './tsForceConstants.js';
+
+const XTB_METHOD_IDS = XTB_METHODS.map((method) => method.id);
 
 /** Hard cap before JSON parsing; project files are small text documents. */
 export const MAX_PROJECT_BYTES = 8 * 1024 * 1024;
@@ -111,6 +115,7 @@ const SETTINGS_KEYS = new Set([
   'jobType', 'method', 'basis', 'memory', 'memoryUnit', 'nproc', 'checkpoint', 'charge',
   'multiplicity', 'dispersion', 'scf', 'grid', 'population', 'verbosity', 'solvation',
   'solvationModel', 'solvent', 'customKeywords', 'ircDirection', 'forceConstants', 'gates',
+  'xtbMethod', 'xtbOptLevel',
 ]);
 const GATE_KEYS = new Set(['termination', 'scf', 'imaginary', 'minMagnitude', 'thermo', 'finalEnergy']);
 
@@ -147,6 +152,8 @@ export function defaultSettings(overrides = {}) {
     solvent: 'Water',
     customKeywords: '',
     ircDirection: 'forward',
+    xtbMethod: 'gfn2',
+    xtbOptLevel: 'normal',
     forceConstants: DEFAULT_TS_FORCE_CONSTANTS,
     gates: defaultGates(),
   };
@@ -388,8 +395,9 @@ function normalizeMolecule(c, raw, legacy) {
 
 function normalizeDefaults(c, raw, legacy) {
   const source = requiredObject(c, raw, 'defaults', legacy, {});
-  warnUnknown(c, source, new Set(['method', 'basis', 'memory', 'memoryUnit', 'nproc']), 'defaults');
+  warnUnknown(c, source, new Set(['engine', 'method', 'basis', 'memory', 'memoryUnit', 'nproc']), 'defaults');
   return {
+    engine: readEnum(c, source.engine, ENGINE_IDS, 'defaults.engine', { legacy, fallback: 'gaussian' }) || 'gaussian',
     method: readString(c, source.method, 'defaults.method', { legacy, fallback: MODERN_ROUTE_PRESET.method, max: 64, required: true }) || MODERN_ROUTE_PRESET.method,
     basis: readString(c, source.basis, 'defaults.basis', { legacy, fallback: MODERN_ROUTE_PRESET.basis, max: 64, required: true }) || MODERN_ROUTE_PRESET.basis,
     memory: readMemory(c, source.memory, 'defaults.memory', { legacy, fallback: '4' }),
@@ -449,6 +457,8 @@ function normalizeSettings(c, raw, path, legacy) {
     solvent: readString(c, source.solvent, `${path}.solvent`, { legacy, fallback: 'Water', max: 40 }) || 'Water',
     customKeywords,
     ircDirection: readEnum(c, source.ircDirection, IRC_DIRECTIONS, `${path}.ircDirection`, { legacy, fallback: 'forward' }),
+    xtbMethod: readEnum(c, source.xtbMethod, XTB_METHOD_IDS, `${path}.xtbMethod`, { legacy, fallback: 'gfn2' }),
+    xtbOptLevel: readEnum(c, source.xtbOptLevel, XTB_OPT_LEVELS, `${path}.xtbOptLevel`, { legacy, fallback: 'normal' }),
     forceConstants: readEnum(c, source.forceConstants, TS_FORCE_CONSTANT_IDS, `${path}.forceConstants`, { legacy, fallback: DEFAULT_TS_FORCE_CONSTANTS }),
     gates: normalizeGates(c, source.gates, `${path}.gates`, legacy),
   };

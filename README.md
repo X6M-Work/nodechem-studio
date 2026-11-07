@@ -75,6 +75,38 @@ byte. Existing project files are never rewritten on open: they keep their saved
 routes. A new project's blocks use the modern route, while a block added to a project
 that already saved its own defaults keeps that project's choice.
 
+## Transition-state searches
+
+A **Transition state** block never emits a bare `Opt=TS`. New TS blocks emit
+`#p <method>/<basis> Opt=(TS,CalcFC,NoEigenTest)`, and the inspector's **Force
+constants** select chooses where the curvature comes from.
+
+Gaussian's default initial Hessian is a valence-force-field guess derived from atomic
+radii. The G16 manual is explicit that for optimizations to transition states "some
+knowledge of the curvature around the saddle point is essential, and the default
+approximate Hessian must always be improved". A bare `Opt=TS` therefore either stalls
+or walks to a different stationary point — and it is the seeded Diels–Alder workflow's
+central block, so a wrong default there is the most expensive mistake the app can make.
+`CalcFC` computes one real Hessian at the first point and lets Berny update it from the
+gradients; `NoEigenTest` keeps a rough starting geometry from aborting the job before
+the first step, when the curvature test would otherwise reject the approximate Hessian.
+
+| Choice | Route | Use |
+| --- | --- | --- |
+| `CalcFC` (default) | `Opt=(TS,CalcFC,NoEigenTest)` | Normal use: one Hessian at the first point. |
+| `CalcAll` | `Opt=(TS,CalcAll)` | Expensive; recomputes the Hessian at every point. The curvature test stays on because a fresh Hessian is available each step. |
+| `ReadFC` | `Opt=(TS,ReadFC)` | Reuse force constants already written to a checkpoint. Requires a checkpoint hand-off to a `Freq` or `Opt=CalcFC` block; the curvature test stays on to confirm the read Hessian really is a single saddle. |
+| `Default (unsafe)` | `Opt=TS` | Only to reproduce an old input byte for byte. Project validation warns (it does not block) because the search will likely fail or converge to the wrong saddle. |
+
+`ReadFC` needs an explicit checkpoint edge, and project validation fails with a
+specific message when the block has none or when the upstream block is not a `Freq` or
+`Opt=CalcFC` job — those are the jobs that actually write force constants to a
+checkpoint. `Opt` and `SP` checkpoints do not contain a Hessian, and an `Opt Freq`
+Hessian describes a minimum rather than the saddle. The route is composed in one place
+(`src/shared/tsForceConstants.js`), so a job type plus its force-constant choice always
+produces exactly one `Opt` keyword; extra route keywords that add another `Opt` are
+rejected rather than emitted twice.
+
 ## Requirements
 
 - Node.js 22 or newer and npm 10 or newer.

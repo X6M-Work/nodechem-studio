@@ -1,5 +1,5 @@
 /**
- * Project file schema for Gaussian Node Studio.
+ * Project file schema for NodeChem Studio.
  *
  * Pure module: no DOM, no filesystem, no Electron. Used by the main process
  * before a project is rendered, and by the renderer when it saves.
@@ -672,7 +672,7 @@ export function validateProject(raw) {
     c.error('schemaVersion', 'must be a positive integer.');
   } else if (rawVersion > SCHEMA_VERSION) {
     c.error('schemaVersion',
-      `project uses schema version ${rawVersion}, but this build supports up to ${SCHEMA_VERSION}. Update Gaussian Node Studio to open it.`);
+      `project uses schema version ${rawVersion}, but this build supports up to ${SCHEMA_VERSION}. Update NodeChem Studio to open it.`);
   }
 
   const legacy = migrated;

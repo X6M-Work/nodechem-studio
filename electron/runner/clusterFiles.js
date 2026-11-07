@@ -1,5 +1,5 @@
 /**
- * Cluster export file I/O and result import for Gaussian Node Studio.
+ * Cluster export file I/O and result import for NodeChem Studio.
  *
  * The script set is planned by `src/shared/clusterExport.js` in the renderer;
  * this module is the only place that touches the filesystem. Export writes a
@@ -130,7 +130,7 @@ async function readManifest(exportDir) {
     throw new Error(`The cluster manifest is not valid JSON: ${error.message}`);
   }
   if (manifest?.kind !== MANIFEST_KIND) {
-    throw new Error('The selected folder is not a Gaussian Node Studio cluster export.');
+    throw new Error('The selected folder is not a NodeChem Studio cluster export.');
   }
   if (manifest.schemaVersion !== MANIFEST_VERSION) {
     throw new Error(`Cluster manifest version ${manifest.schemaVersion} is not supported by this build.`);

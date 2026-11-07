@@ -18,6 +18,14 @@ const DEV_URL = 'http://127.0.0.1:5173';
 // Injected by the packaging/launch environment. No git call and no network.
 const APP_COMMIT = String(process.env.GIT_COMMIT || '').trim() || 'unknown';
 
+// Electron derives the userData folder from the package name, so the rename to
+// nodechem-studio would otherwise point at an empty directory and strand every
+// existing run folder, queued job and saved preference. Pin userData to the
+// pre-rename folder name: runs/, queues/ and the localStorage store move with it.
+const USER_DATA_DIR = path.join(app.getPath('appData'), 'gaussian-node-studio');
+fs.mkdirSync(USER_DATA_DIR, { recursive: true });
+app.setPath('userData', USER_DATA_DIR);
+
 let mainWindow = null;
 let runManager = null;
 let queueManager = null;
@@ -43,7 +51,7 @@ function createWindow() {
     minHeight: 700,
     show: false,
     backgroundColor: '#07090d',
-    title: 'Gaussian Node Studio',
+    title: 'NodeChem Studio',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -200,9 +208,9 @@ async function preflight(config = {}) {
 
 async function openProject() {
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Open Gaussian Studio project',
+    title: 'Open NodeChem Studio project',
     properties: ['openFile'],
-    filters: [{ name: 'Gaussian Studio project', extensions: ['json', 'ghproject'] }],
+    filters: [{ name: 'NodeChem Studio project', extensions: ['json', 'ghproject'] }],
   });
   if (result.canceled) return { canceled: true };
   const filePath = result.filePaths[0];
@@ -241,9 +249,9 @@ async function saveProject(project, filePath) {
   }
   if (!target) {
     const result = await dialog.showSaveDialog(mainWindow, {
-      title: 'Save Gaussian Studio project',
+      title: 'Save NodeChem Studio project',
       defaultPath: path.join(app.getPath('documents'), suggestedProjectName(project)),
-      filters: [{ name: 'Gaussian Studio project', extensions: ['json'] }],
+      filters: [{ name: 'NodeChem Studio project', extensions: ['json'] }],
     });
     if (result.canceled || !result.filePath) return { canceled: true };
     target = result.filePath;

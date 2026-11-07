@@ -1,9 +1,9 @@
-# Handoff — Gaussian Node Studio v0.1
+# Handoff — NodeChem Studio v0.1
 
 **For:** the Hermes instance on Will's Windows machine (`will`, `http://192.168.0.16:8642`)
 **From:** the Hermes instance on the AI stack (`aistack`)
 **Owner:** Xavier. Will is the licensed Gaussian user and the acceptance tester.
-**Bundle:** `gaussian-node-studio-v0.1.0.tar.gz` + `.sha256`
+**Bundle:** `nodechem-studio-v0.1.0.tar.gz` + `.sha256`
 **Status:** v0.1 local runner slice; dry run verified in Chromium and Vitest, **not yet on
 Windows**.
 
@@ -41,16 +41,16 @@ geometry.
 
    ```powershell
    mkdir C:\Users\Will\Projects
-   tar -xzf gaussian-node-studio-v0.1.0.tar.gz -C C:\Users\Will\Projects
-   cd C:\Users\Will\Projects\gaussian-node-studio-v0.1.0
+   tar -xzf nodechem-studio-v0.1.0.tar.gz -C C:\Users\Will\Projects
+   cd C:\Users\Will\Projects\nodechem-studio-v0.1.0
    ```
 
    If `tar` is unavailable, use 7-Zip on the `.zip`.
 3. Verify the checksum (PowerShell):
 
    ```powershell
-   Get-FileHash .\gaussian-node-studio-v0.1.0.tar.gz -Algorithm SHA256
-   Get-Content .\gaussian-node-studio-v0.1.0.tar.gz.sha256
+   Get-FileHash .\nodechem-studio-v0.1.0.tar.gz -Algorithm SHA256
+   Get-Content .\nodechem-studio-v0.1.0.tar.gz.sha256
    ```
 
 4. Install dependencies and run the suite:

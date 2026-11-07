@@ -1,4 +1,4 @@
-# AGENTS.md — Gaussian Node Studio
+# AGENTS.md — NodeChem Studio
 
 Rules for any coding agent working in this repository. Read this before editing.
 

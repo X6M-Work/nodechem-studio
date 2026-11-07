@@ -96,7 +96,7 @@ export function methodBlockFor(settings = {}) {
 }
 
 export function buildGaussianInput({
-  title = 'Gaussian Node Studio task',
+  title = 'NodeChem Studio task',
   settings = {},
   molecule = {},
   inputName = 'task.gjf',
@@ -161,7 +161,7 @@ export function buildGaussianInput({
   }
   lines.push(route);
   lines.push('');
-  lines.push(oneLine(title, 'Gaussian Node Studio task'));
+  lines.push(oneLine(title, 'NodeChem Studio task'));
   lines.push('');
   lines.push(`${charge} ${multiplicity}`);
   lines.push(...coordinateLines);

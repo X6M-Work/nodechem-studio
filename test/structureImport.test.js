@@ -25,7 +25,7 @@ H 1.2400 -2.1470 ${'0.0000'}
 `;
 
 const WATER_MOL = `water
-  Gaussian Node Studio
+  NodeChem Studio
 
   3  2  0  0  0  0  0  0  0  0  1 V2000
     0.0000    0.0000    0.1173 O   0  0

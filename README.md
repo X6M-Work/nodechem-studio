@@ -1,10 +1,10 @@
-# Gaussian Node Studio
+# NodeChem Studio
 
 A local-first desktop workspace for Gaussian 16. The graph is the workspace: every calculation,
 condition, loop, merge, output and note is a node, and the contextual inspector exposes the full
 job parameter set without hiding the canvas.
 
-![Gaussian Node Studio: node graph with the Reactant frequency inspector open](docs/images/studio-overview.png)
+![NodeChem Studio: node graph with the Reactant frequency inspector open](docs/images/studio-overview.png)
 
 **Status: v0.1 — local runner slice.** The graph, durable workflow queue, dry-run path and project
 format are implemented and covered by tests. Real Gaussian execution requires a licensed Gaussian
@@ -216,7 +216,7 @@ npm test
 npm run dist
 ```
 
-`release\Gaussian Node Studio-0.1.0-x64.exe` is a per-user NSIS installer; the target machine does
+`release\nodechem-studio-0.1.0-x64.exe` is a per-user NSIS installer; the target machine does
 not need Node. The build is unsigned, so SmartScreen warns on first launch.
 
 The **Windows package** GitHub Actions workflow builds the same installer on `windows-latest`

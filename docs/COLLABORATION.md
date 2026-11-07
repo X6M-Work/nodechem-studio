@@ -1,4 +1,4 @@
-# Working agreement — Gaussian Node Studio
+# Working agreement — NodeChem Studio
 
 This project is developed by Xavier (product owner), the Hermes instance on the AI stack
 (review/architecture), and the Hermes instance on Will's Windows machine (local build and test).
@@ -102,14 +102,14 @@ Two paths exist:
 2. **Shared folder / bundle**: place the tarball or patch in the agent exchange share. Do not
    put secrets, licence files, genotypes, medical data, or credentials there.
 
-Bundles are versioned: `gaussian-node-studio-v0.1.0.tar.gz` plus `.sha256`. Verify the checksum
+Bundles are versioned: `nodechem-studio-v0.1.0.tar.gz` plus `.sha256`. Verify the checksum
 before unpacking. The bundle excludes `node_modules`, `dist`, `.git`, run folders, and logs.
 
 ## 7. Environment rules for Will's machine
 
 - Windows 10/11, Node 22+ installed by the user.
 - Work in `C:\Users\<user>\Projects\gaussian-node-studio` (avoid a path with spaces in the
-  Gaussian scratch directory).
+  Gaussian scratch directory). The GitHub repository name is unchanged by the product rename.
 - `npm install` is allowed in this project (it is a normal dependency install; the Gaussian
   install is separate and must not be copied).
 - Do not change system-wide environment variables. The runner sets `GAUSS_EXEDIR` and

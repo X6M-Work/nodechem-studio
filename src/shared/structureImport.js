@@ -1,5 +1,5 @@
 /**
- * Structure import for Gaussian Node Studio.
+ * Structure import for NodeChem Studio.
  *
  * Reads Cartesian geometries from .xyz, .mol, .sdf, .gjf and .com. Pure module:
  * text in, validated molecule out. Z-matrices are refused with a specific

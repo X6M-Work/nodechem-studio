@@ -1,6 +1,6 @@
 # Exporting a graph to a SLURM or PBS cluster
 
-Gaussian Node Studio is local-only: it never submits jobs and never opens a
+NodeChem Studio is local-only: it never submits jobs and never opens a
 network connection. **Export cluster scripts** is an offline artifact builder.
 It writes a self-contained folder that you can copy to a cluster and submit
 yourself with the generated `submit-all.sh`.
@@ -87,7 +87,7 @@ run record for a job that did not return anything.
 
 Gaussian is licensed commercial software. Running an exported script set
 requires a Gaussian licence that covers the cluster, its users and every node
-that executes a job. Gaussian Node Studio does not include, copy or redistribute
+that executes a job. NodeChem Studio does not include, copy or redistribute
 Gaussian; you must install and licence it on the cluster yourself. Check the
 licence terms before submitting — site licences can restrict named users,
 specific hosts or the number of concurrent jobs. The exported `README.txt`

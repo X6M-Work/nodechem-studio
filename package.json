@@ -1,9 +1,9 @@
 {
-  "name": "gaussian-node-studio",
+  "name": "nodechem-studio",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Node-first desktop workbench for Gaussian 16 workflows",
+  "description": "NodeChem Studio — node-first desktop workbench for Gaussian 16 workflows",
   "license": "UNLICENSED",
   "author": "xharl",
   "engines": {
@@ -32,8 +32,8 @@
     "wait-on": "^9.5.1"
   },
   "build": {
-    "appId": "com.xharl.gaussiannodestudio",
-    "productName": "Gaussian Node Studio",
+    "appId": "com.xharl.nodechemstudio",
+    "productName": "NodeChem Studio",
     "copyright": "Copyright \u00a9 2026 Xavier",
     "directories": {
       "output": "release",
@@ -55,7 +55,7 @@
           ]
         }
       ],
-      "artifactName": "${productName}-${version}-${arch}.${ext}"
+      "artifactName": "${name}-${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -63,7 +63,7 @@
       "allowToChangeInstallationDirectory": true,
       "deleteAppDataOnUninstall": false,
       "createDesktopShortcut": true,
-      "shortcutName": "Gaussian Node Studio"
+      "shortcutName": "NodeChem Studio"
     }
   }
 }

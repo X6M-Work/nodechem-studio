@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="$(node -e "process.stdout.write(JSON.parse(require('node:fs').readFileSync('package.json','utf8')).version)")"
-NAME="gaussian-node-studio-v${VERSION}"
+NAME="nodechem-studio-v${VERSION}"
 OUT="${1:-$ROOT/release}"
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/gns-bundle.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT

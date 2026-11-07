@@ -25,7 +25,8 @@ canvas with a contextual inspector. Do not replace it with a permanent form colu
    preload bridge. Do not enable `nodeIntegration` or expose `child_process`/`fs` directly.
 7. **Paths are untrusted.** Generate run IDs in main; validate input/output basenames against
    `[A-Za-z0-9._-]+`; join under the run directory. Never pass a renderer string to a shell.
-8. **No shell.** Spawn `g16.exe` with an argument array, `shell: false`, `windowsHide: true`.
+8. **No shell.** Spawn the Gaussian console runner (`g16.exe` on Windows, `g16` on Linux/macOS)
+   with an argument array, `shell: false`, `windowsHide: true`.
 9. **No secrets in the repo.** No API keys, tokens, passwords, `.env` contents, or licence
    strings. Do not print them in logs or test output.
 10. **No destructive cleanup.** Do not delete worktrees, branches, run folders, or user files
@@ -80,7 +81,9 @@ npm run build
 - Squash merge. Do not force-push `main`. Do not commit directly to `main`.
 - If a task changes a boundary in `docs/IMPLEMENTATION_PLAN.md`, update the plan in the same PR.
 
-## Windows specifics
+## Platform specifics
+
+### Windows
 
 - The console executable is normally `C:\G16W\g16.exe`; `g16w.exe` is the GUI and must not be
   spawned.
@@ -91,3 +94,16 @@ npm run build
 - Test on Windows before calling a runner task done. This Linux container cannot launch
   Electron (no GTK/display), so renderer checks happen in Chromium and runner checks in Vitest;
   that is not a substitute for GN-001.
+
+### Linux and macOS
+
+- The console executable is `g16` inside the installation's `g16` directory, with `l1` beside it.
+  `g16.exe` is the Windows build and must not be accepted on POSIX.
+- Resolve a symlinked `g16` (for example `/usr/local/bin/g16`) to the real installation directory
+  and set `GAUSS_EXEDIR` to that directory; prepend it to `PATH`.
+- Scratch must be node-local disk. Warn about spaces on every platform and about NFS/SMB-looking
+  paths on POSIX; never rewrite the path.
+- Cancel with `SIGTERM`, then `SIGKILL` after a grace period.
+- A Windows licence may not be used under WSL: do not present WSL as a way to run the Windows
+  build. A real Linux install and licence is required, and that path is not exercised in this
+  container.

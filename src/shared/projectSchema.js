@@ -30,6 +30,13 @@ import {
   hasOptKeyword,
   optConvergenceWarnings,
 } from './tsForceConstants.js';
+import {
+  CHECK_STATUS,
+  VALIDITY_CHECKS,
+  VALIDITY_CHECK_IDS,
+  runValidityChecks,
+  summarizeValidity,
+} from './validityChecks.js';
 
 const XTB_METHOD_IDS = XTB_METHODS.map((method) => method.id);
 
@@ -119,7 +126,7 @@ const SETTINGS_KEYS = new Set([
   'jobType', 'method', 'basis', 'memory', 'memoryUnit', 'nproc', 'checkpoint', 'charge',
   'multiplicity', 'dispersion', 'scf', 'grid', 'population', 'verbosity', 'solvation',
   'solvationModel', 'solvent', 'customKeywords', 'ircDirection', 'optConvergence',
-  'forceConstants', 'gates',
+  'forceConstants', 'gates', 'disabledChecks',
   'xtbMethod', 'xtbOptLevel',
 ]);
 const GATE_KEYS = new Set(['termination', 'scf', 'imaginary', 'minMagnitude', 'thermo', 'finalEnergy']);
@@ -162,6 +169,8 @@ export function defaultSettings(overrides = {}) {
     optConvergence: DEFAULT_OPT_CONVERGENCE,
     forceConstants: DEFAULT_TS_FORCE_CONSTANTS,
     gates: defaultGates(),
+    // Issue #25: validity checks are on by default; a node opts out by id.
+    disabledChecks: [],
   };
   const settings = {
     ...base,
@@ -431,6 +440,32 @@ function normalizeGates(c, raw, path, legacy) {
   };
 }
 
+/**
+ * Issue #25: a node may switch off individual validity checks by id. Unknown
+ * ids are dropped with a warning so a typo cannot silently disable nothing,
+ * and the canonical save stays stable.
+ */
+function normalizeDisabledChecks(c, raw, path, legacy) {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    c.error(path, 'must be an array of validity-check ids.');
+    return [];
+  }
+  const disabled = [];
+  raw.forEach((value, index) => {
+    if (typeof value !== 'string') {
+      c.error(`${path}[${index}]`, 'must be a validity-check id.');
+      return;
+    }
+    if (!VALIDITY_CHECK_IDS.includes(value)) {
+      c.warn(`${path}[${index}]`, `is not a known validity check and will be dropped on save (known: ${VALIDITY_CHECK_IDS.join(', ')}).`);
+      return;
+    }
+    if (!disabled.includes(value)) disabled.push(value);
+  });
+  return disabled;
+}
+
 function normalizeSettings(c, raw, path, legacy) {
   const source = requiredObject(c, raw, path, legacy, {});
   warnUnknown(c, source, SETTINGS_KEYS, path);
@@ -468,6 +503,7 @@ function normalizeSettings(c, raw, path, legacy) {
     optConvergence: readEnum(c, source.optConvergence, OPT_CONVERGENCE_IDS, `${path}.optConvergence`, { legacy, fallback: DEFAULT_OPT_CONVERGENCE }),
     forceConstants: readEnum(c, source.forceConstants, TS_FORCE_CONSTANT_IDS, `${path}.forceConstants`, { legacy, fallback: DEFAULT_TS_FORCE_CONSTANTS }),
     gates: normalizeGates(c, source.gates, `${path}.gates`, legacy),
+    disabledChecks: normalizeDisabledChecks(c, source.disabledChecks, `${path}.disabledChecks`, legacy),
   };
 }
 
@@ -660,11 +696,79 @@ function normalizeEdges(c, raw, nodeIds, legacy) {
 
 /* ── Public API ───────────────────────────────────────────── */
 
+/**
+ * Issue #25: run the pre-flight validity checks over a normalised project.
+ *
+ * Findings are reported in `validity`; warnings (and non-blocking failures) go
+ * into the ordinary warning list. Blocking failures are *not* added to the
+ * schema errors on purpose: a project file must stay openable and saveable so
+ * the user can fix a geometry or a charge, and only a run (or an input export)
+ * is meaningless. The renderer's Validate action and the input builder enforce
+ * `validity.blocking`.
+ */
+function evaluateProjectValidity(c, { nodes, molecule, defaults }) {
+  const findingsReport = [];
+  const blocking = [];
+  if (defaults.engine !== 'gaussian') {
+    return {
+      overall: 'unknown',
+      findings: [],
+      blocking,
+      note: `Validity checks cover Gaussian routes only; engine "${defaults.engine}" was not judged.`,
+    };
+  }
+
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  nodes.forEach((node, index) => {
+    if (node.type !== 'calc') return;
+    const source = node.checkpointFrom ? byId.get(node.checkpointFrom) || null : null;
+    const upstream = source ? {
+      id: source.id,
+      title: source.title,
+      settings: source.settings,
+      state: source.state,
+      output: source.output,
+      // The project file does not carry parsed output; a run record supplies
+      // it when the queue evaluates the downstream job.
+      parsed: null,
+    } : null;
+
+    const result = runValidityChecks({
+      settings: node.settings,
+      molecule,
+      parsed: null,
+      upstream,
+    }, { phase: 'pre' });
+
+    for (const finding of result.findings) {
+      const entry = { ...finding, nodeId: node.id };
+      findingsReport.push(entry);
+      const meta = VALIDITY_CHECKS.find((check) => check.id === finding.id);
+      if (finding.status === CHECK_STATUS.FAIL && meta?.blocking) {
+        blocking.push(entry);
+      } else if (finding.status === CHECK_STATUS.WARNING
+        || (finding.status === CHECK_STATUS.FAIL && !meta?.blocking)) {
+        c.warn(`nodes[${index}].validity.${finding.id}`, finding.message);
+      }
+    }
+  });
+
+  return { overall: summarizeValidity(findingsReport).overall, findings: findingsReport, blocking };
+}
+
 export function validateProject(raw) {
   const c = createCollector();
   if (!isPlainObject(raw)) {
     c.error('', 'Project must be a JSON object.');
-    return { ok: false, errors: c.errors, warnings: c.warnings, project: null, migrated: false, schemaVersion: 0 };
+    return {
+      ok: false,
+      errors: c.errors,
+      warnings: c.warnings,
+      project: null,
+      migrated: false,
+      schemaVersion: 0,
+      validity: { overall: 'unknown', findings: [], blocking: [] },
+    };
   }
 
   warnUnknown(c, raw, TOP_LEVEL_KEYS, '');
@@ -759,6 +863,15 @@ export function validateProject(raw) {
     edges,
   };
 
+  // Issue #25: pre-run validity checks. They need the normalised molecule and
+  // the checkpoint hand-offs, so they run after the graph is built. Only
+  // blocking failures become validation errors.
+  const validity = evaluateProjectValidity(c, {
+    nodes: project.nodes,
+    molecule: project.molecule,
+    defaults: project.defaults,
+  });
+
   return {
     ok: c.ok,
     errors: c.errors,
@@ -766,6 +879,7 @@ export function validateProject(raw) {
     project: c.ok ? project : null,
     migrated,
     schemaVersion,
+    validity,
   };
 }
 
@@ -806,6 +920,7 @@ function failure(path, message) {
     project: null,
     migrated: false,
     schemaVersion: 0,
+    validity: { overall: 'unknown', findings: [], blocking: [] },
   };
 }
 

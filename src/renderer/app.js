@@ -20,6 +20,7 @@ import {
   routePresetIdFor,
 } from '../shared/routePresets.js';
 import { parseStructure } from '../shared/structureImport.js';
+import { CHECK_STATUS, VALIDITY_CHECKS, runValidityChecks } from '../shared/validityChecks.js';
 import {
   OPT_CONVERGENCE_OPTIONS,
   TS_FORCE_CONSTANT_OPTIONS,
@@ -216,6 +217,7 @@ const state = {
     dir: null,
     output: '',
     gates: [],
+    validity: [],
   },
   queue: {
     id: null,
@@ -909,6 +911,22 @@ function calcInspector(node) {
     switchRow('Post-HF final energy', 'requires a final energy record', 'finalEnergy', gates.finalEnergy, { gate: true }),
   ].join(''));
 
+  // Issue #25: every validity check can be switched off per block. The schema
+  // stores the disabled ids, so the choice survives save/reopen.
+  const disabledChecks = Array.isArray(s.disabledChecks) ? s.disabledChecks : [];
+  const validityGroup = group(
+    'Validity checks',
+    `${VALIDITY_CHECKS.length - disabledChecks.length}/${VALIDITY_CHECKS.length} active`,
+    false,
+    VALIDITY_CHECKS.map((check) => switchRow(
+      check.title,
+      check.phases.map((phase) => (phase === 'pre' ? 'pre-run' : 'post-run')).join(' · '),
+      check.id,
+      !disabledChecks.includes(check.id),
+      { attr: `data-validity-check="${check.id}"` },
+    )).join(''),
+  );
+
   const dependencyGroup = group('Dependencies', `${ins.length} input${ins.length === 1 ? '' : 's'}`, true, [
     `<div class="full">${incomingList(node.id)}</div>`,
     ins.length ? `<div class="field full"><label>Checkpoint hand-off</label><select class="select" data-node-field="checkpointFrom">
@@ -954,6 +972,7 @@ function calcInspector(node) {
     ${isXtb ? '' : solvationGroup}
     ${moleculeGroup}
     ${gatesGroup}
+    ${isXtb ? '' : validityGroup}
     ${dependencyGroup}
     ${outputGroup}
     ${isXtb ? '' : extraGroup}
@@ -1353,6 +1372,14 @@ function updateNodeField(node, key, value) {
 function updateGate(node, key, checked) {
   if (!node.settings?.gates) return;
   node.settings.gates[key] = checked;
+}
+
+/** Issue #25: a disabled validity check is stored by id; enabling removes it. */
+function updateValidityCheck(node, id, enabled) {
+  if (!node.settings) return;
+  const current = Array.isArray(node.settings.disabledChecks) ? node.settings.disabledChecks : [];
+  node.settings.disabledChecks = current.filter((item) => item !== id);
+  if (!enabled) node.settings.disabledChecks.push(id);
 }
 
 function removeNode(id) {
@@ -1890,7 +1917,36 @@ function validateGraph() {
     .filter((node) => node.type === 'calc')
     .map((node) => {
       const ts = tsForceConstantIssues(node);
-      return { node, errors: ts.errors, warnings: [...ts.warnings, ...optConvergenceIssues(node)] };
+      // Issue #25: the same pre-run validity checks project validation runs,
+      // surfaced in the inspector so a blocked export has a specific reason.
+      const validity = runValidityChecks({
+        settings: node.settings,
+        molecule: {
+          charge: state.project.molecule.charge,
+          multiplicity: state.project.molecule.multiplicity,
+          coords: state.project.molecule.coords?.length ? state.project.molecule.coords : DEMO_WATER,
+        },
+        parsed: null,
+        upstream: validityUpstreamFor(node),
+      }, { phase: 'pre', engine: engineOrDefault(state.project?.defaults?.engine).id });
+      const blocking = new Set(VALIDITY_CHECKS.filter((check) => check.blocking).map((check) => check.id));
+      return {
+        node,
+        errors: [
+          ...ts.errors,
+          ...validity.findings
+            .filter((finding) => finding.status === CHECK_STATUS.FAIL && blocking.has(finding.id))
+            .map((finding) => finding.message),
+        ],
+        warnings: [
+          ...ts.warnings,
+          ...optConvergenceIssues(node),
+          ...validity.findings
+            .filter((finding) => finding.status === CHECK_STATUS.WARNING
+              || (finding.status === CHECK_STATUS.FAIL && !blocking.has(finding.id)))
+            .map((finding) => finding.message),
+        ],
+      };
     });
   const errors = findings.flatMap(({ node, errors: list }) => list.map((message) => `${node.title}: ${message}`));
   const warnings = findings.flatMap(({ node, warnings: list }) => list.map((message) => `${node.title} ${message}`));
@@ -1953,9 +2009,69 @@ function checkpointNameFor(node) {
   return node?.settings?.checkpoint || `${safeBase(node?.id || 'task')}.chk`;
 }
 
+/**
+ * Issue #25: the serializable context for the validity checks. Settings are
+ * limited to what the checks read; the geometry is the same one the runner
+ * builds the input from, including the labelled demo water fallback.
+ */
+function validityForNode(node) {
+  const molecule = state.project.molecule;
+  return {
+    settings: {
+      jobType: node.settings.jobType,
+      method: node.settings.method,
+      basis: node.settings.basis,
+      dispersion: node.settings.dispersion,
+      disabledChecks: Array.isArray(node.settings.disabledChecks) ? node.settings.disabledChecks : [],
+    },
+    molecule: {
+      charge: molecule.charge,
+      multiplicity: molecule.multiplicity,
+      coords: Array.isArray(molecule.coords) && molecule.coords.length > 0 ? molecule.coords : DEMO_WATER,
+    },
+    upstream: validityUpstreamFor(node),
+  };
+}
+
 function oldCheckpointFor(node) {
   const source = checkpointSourceNode(node);
   return source ? checkpointNameFor(source) : '';
+}
+
+/** Issue #25: upstream evidence for the optimisation-convergence check. */
+function validityUpstreamFor(node) {
+  const source = checkpointSourceNode(node);
+  if (!source) return null;
+  return {
+    id: source.id,
+    title: source.title,
+    state: source.state,
+    output: source.output ? source.output.file || source.output : null,
+    settings: {
+      jobType: source.settings?.jobType,
+      method: source.settings?.method,
+      basis: source.settings?.basis,
+      dispersion: source.settings?.dispersion,
+    },
+    parsed: null,
+  };
+}
+
+/**
+ * Issue #25: the one pre-run finding that makes an export or a run
+ * meaningless. Checks are independent, so this is the only gate the input
+ * builder enforces; warnings stay visible in Validate.
+ */
+function blockingValidityFinding(node, settings, molecule) {
+  const engine = engineOrDefault(state.project?.defaults?.engine);
+  const result = runValidityChecks({
+    settings,
+    molecule,
+    parsed: null,
+    upstream: validityUpstreamFor(node),
+  }, { phase: 'pre', engine: engine.id });
+  const blocking = new Set(VALIDITY_CHECKS.filter((check) => check.blocking).map((check) => check.id));
+  return result.findings.find((finding) => finding.status === CHECK_STATUS.FAIL && blocking.has(finding.id)) || null;
 }
 
 /** The block whose checkpoint feeds this one, or null. Mirrors %OldChk. */
@@ -1999,6 +2115,8 @@ function buildRunInput(node) {
     multiplicity: state.project.molecule.multiplicity,
     coords: imported ? state.project.molecule.coords : DEMO_WATER,
   };
+  const blocking = blockingValidityFinding(node, settings, molecule);
+  if (blocking) throw new Error(blocking.message);
   const base = safeBase(node.id);
   if (engine.id === 'xtb') {
     return engine.buildInput({ title: node.title, settings, molecule, inputName: `${base}.xyz` });
@@ -2056,13 +2174,28 @@ function appendRunOutput(text) {
   el.scrollTop = el.scrollHeight;
 }
 
-function renderRunGates(gates = []) {
+function renderRunGates(gates = [], validity = null) {
   state.run.gates = gates;
+  state.run.validity = Array.isArray(validity?.findings) ? validity.findings : [];
   const el = $('#run-gates');
   if (!el) return;
-  el.innerHTML = gates.map((gate) => (
+  const chips = gates.map((gate) => (
     `<span class="run-gate ${esc(gate.result)}" title="${esc(gate.detail || '')}">${esc(gate.name)} · ${esc(gate.result)}</span>`
-  )).join('');
+  ));
+  // Issue #25: validity findings sit next to the gates but never change the
+  // gate verdict. A warning is rendered in the amber tone; a failure in red.
+  const findings = state.run.validity.filter((finding) => (
+    finding.status !== CHECK_STATUS.PASS && finding.status !== CHECK_STATUS.SKIPPED
+  ));
+  for (const finding of findings) {
+    const tone = finding.status === CHECK_STATUS.WARNING ? 'unknown' : finding.status;
+    const detail = `${finding.severity ? `${finding.severity} — ` : ''}${finding.message || ''}`;
+    chips.push(`<span class="run-gate ${esc(tone)}" title="${esc(detail)}">${esc(finding.title || finding.id)} · ${esc(finding.status)}</span>`);
+  }
+  if (validity && findings.length === 0) {
+    chips.push(`<span class="run-gate ${validity.overall === 'pass' ? 'pass' : 'unknown'}" title="Issue #25 validity checks ran on the parsed records">validity · ${esc(validity.overall)}</span>`);
+  }
+  el.innerHTML = chips.join('');
 }
 
 // Persisted preference key for the run console.
@@ -2181,6 +2314,7 @@ async function startSelectedRun() {
       scratchDir: $('#run-scratch').value.trim(),
       dryRun,
       gates: gatesForNode(node),
+      validity: validityForNode(node),
     });
     state.run.id = response.runId;
     state.run.dir = response.runDir;
@@ -2210,12 +2344,17 @@ function handleRunEvent(event) {
     const record = event.record;
     state.run.id = record.id || state.run.id;
     setRunState(record.status, record.status);
-    renderRunGates(record.gates?.gates || []);
+    renderRunGates(record.gates?.gates || [], record.gates?.validity || null);
     mountThermochemistryView($('#run-thermo'), record.parsed);
     $('#cancel-run')?.setAttribute('disabled', '');
     const verdict = record.gates?.overall || 'unknown';
-    setStatusMessage(`Run ${record.status} · gates ${verdict} · ${record.title || 'local job'}`);
-    appendRunOutput(`\nRun ${record.status} · gates: ${verdict}${record.error ? `\n${record.error}` : ''}\n`);
+    const validityVerdict = record.gates?.validity?.overall || null;
+    setStatusMessage(`Run ${record.status} · gates ${verdict}${validityVerdict && validityVerdict !== 'pass' ? ` · validity ${validityVerdict}` : ''} · ${record.title || 'local job'}`);
+    appendRunOutput(`\nRun ${record.status} · gates: ${verdict}${validityVerdict ? ` · validity: ${validityVerdict}` : ''}${record.error ? `\n${record.error}` : ''}\n`);
+    for (const finding of record.gates?.validity?.findings || []) {
+      if (finding.status === 'pass' || finding.status === 'skipped') continue;
+      appendRunOutput(`Validity [${finding.severity || finding.status}] ${finding.title || finding.id}: ${finding.message}\n`);
+    }
     appendRunOutput(`\n${provenanceSummary(record)}\n`);
     syncVerifyButton($('#verify-run'), state.run.id);
     toast(`Run ${record.status}${verdict !== 'unknown' ? ` · ${verdict}` : ''}.`);
@@ -2283,6 +2422,7 @@ function buildWorkflowTasks() {
       inputText: built.inputText,
       settings: settingsForNode(node),
       gates: gatesForNode(node),
+      validity: validityForNode(node),
       checkpointName: checkpointNameFor(node),
       checkpointFrom: checkpointSourceFor(node),
     };
@@ -2707,6 +2847,14 @@ function onDocumentChange(event) {
     if (!node || node.type !== 'calc') return;
     updateGate(node, target.dataset.nodeGate, target.checked);
     renderGraph();
+    renderInspector();
+    return;
+  }
+  if (target.dataset.validityCheck) {
+    if (state.selected.type !== 'node') return;
+    const node = nodeById(state.selected.id);
+    if (!node || node.type !== 'calc') return;
+    updateValidityCheck(node, target.dataset.validityCheck, target.checked);
     renderInspector();
     return;
   }

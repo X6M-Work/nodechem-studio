@@ -111,6 +111,41 @@ describe('RunManager dry-run path', () => {
     expect(runJson.parsed.bytes.windows.map((window) => window.name)).toEqual(['fixture']);
   });
 
+  it('reports validity findings next to the gates without changing the gate verdict', async () => {
+    const { manager, events, root } = await makeManager();
+    const response = await manager.start({
+      title: 'Validity fixture',
+      inputText: '%Chk=validity.chk\n#p B3LYP/6-31G(d) SP\n\nValidity\n\n0 2\nO 0 0 0.1173\n',
+      inputName: 'validity.gjf',
+      outputName: 'validity.out',
+      dryRun: true,
+      gates: {},
+      validity: {
+        settings: { jobType: 'SP', method: 'B3LYP', basis: '6-31G(d)', dispersion: '' },
+        molecule: {
+          charge: 0,
+          multiplicity: 2,
+          coords: [
+            { element: 'O', x: 0, y: 0, z: 0.1173 },
+            { element: 'H', x: 0, y: 0.7572, z: -0.4692 },
+            { element: 'H', x: 0, y: -0.7572, z: -0.4692 },
+          ],
+        },
+      },
+    });
+    const done = await waitForDone(events);
+    // The job ran and its gates pass; the science does not. Both are recorded.
+    expect(done.record.status).toBe('completed');
+    expect(done.record.gates.overall).toBe('pass');
+    expect(done.record.gates.validity.overall).toBe('fail');
+    const finding = done.record.gates.validity.findings.find((entry) => entry.id === 'charge-multiplicity');
+    expect(finding).toMatchObject({ status: 'fail', severity: 'error' });
+    expect(finding.evidence.electrons).toBe(10);
+
+    const runJson = JSON.parse(await fsp.readFile(path.join(root, response.runId, 'run.json'), 'utf8'));
+    expect(runJson.gates.validity.overall).toBe('fail');
+  });
+
   it('lists completed runs newest first', async () => {
     const { manager, events } = await makeManager();
     await manager.start({

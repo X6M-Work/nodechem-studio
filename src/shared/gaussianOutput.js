@@ -14,6 +14,7 @@
 
 import { terminationCodeOf } from './engines/canonical.js';
 import { ELEMENTS } from './elements.js';
+import { summarizeValidity } from './validityChecks.js';
 
 const NUMBER = String.raw`[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[EeDd][-+]?\d+)?`;
 
@@ -828,6 +829,23 @@ function parseFinalEnergy(joined, scf) {
   };
 }
 
+/**
+ * Spin contamination from the unrestricted reference, if printed.
+ *
+ * Restricted (RHF/RDFT) references print no such line, so both values stay
+ * null and the validity check reports `skipped` rather than inventing a zero.
+ */
+function parseSpinContamination(joined) {
+  const match = joined.match(new RegExp(
+    String.raw`S\*\*2\s+before\s+annihilation\s+(${NUMBER})\s*,?\s*after\s+(${NUMBER})`,
+    'i',
+  ));
+  return {
+    before: match ? toNumber(match[1]) : null,
+    after: match ? toNumber(match[2]) : null,
+  };
+}
+
 /* ── Link assembly ───────────────────────────────────────────── */
 
 function parseLink(section, index) {
@@ -878,6 +896,7 @@ function parseLink(section, index) {
     frequencyBlocks,
     thermochemistry: parseThermochemistry(joined, lines),
     finalEnergy: parseFinalEnergy(joined, scf),
+    spinContamination: parseSpinContamination(joined),
     charges: parseCharges(lines),
     t1Diagnostic: parseT1Diagnostic(lines),
     resources: parseResources(joined),
@@ -995,6 +1014,14 @@ export function parseGaussianOutput(text, { truncated = false, byteRange = null 
     || link.resources.processors !== null
     || link.resources.cpuSeconds !== null) || null;
   const errorTermination = errorLink ? errorLink.error : null;
+  // Unrestricted references print one line, e.g.
+  //   S**2 before annihilation     0.7531,   after     0.7500
+  // A restricted reference prints none: S**2 is exact by construction.
+  const spinLink = reversed.find((link) => link.spinContamination.before !== null
+    || link.spinContamination.after !== null) || null;
+  const spinContamination = spinLink
+    ? spinLink.spinContamination
+    : { before: null, after: null };
 
   return {
     status,
@@ -1010,6 +1037,7 @@ export function parseGaussianOutput(text, { truncated = false, byteRange = null 
     frequencies,
     thermochemistry,
     finalEnergy,
+    spinContamination,
     charges,
     t1Diagnostic: t1Link ? t1Link.t1Diagnostic : null,
     resources: resourcesLink ? resourcesLink.resources : emptyResources(),
@@ -1029,6 +1057,11 @@ export function parseGaussianOutput(text, { truncated = false, byteRange = null 
  * Termination is read through the canonical `terminationCodeOf()` so the same
  * gates work for any engine. Root-level fields are already scoped to the
  * relevant link by `parseGaussianOutput`, so the gate never aggregates steps.
+ *
+ * `validity` is an optional list of validity-check findings (issue #25). They
+ * are summarised under `gates.validity` and deliberately do not change
+ * `gates.overall`: a run can execute correctly and still be scientifically
+ * unsupported, and the record says both things separately.
  */
 export function evaluateGates(parsed, {
   expectedImaginary = null,
@@ -1037,6 +1070,7 @@ export function evaluateGates(parsed, {
   requireFrequency = false,
   requireThermochemistry = false,
   requireFinalEnergy = false,
+  validity = null,
 } = {}) {
   const gates = [];
   const add = (name, required, result, detail) => {
@@ -1112,5 +1146,12 @@ export function evaluateGates(parsed, {
     : required.every((gate) => gate.result === 'pass') ? 'pass' : 'unknown';
   // Structural guard: no partial parse can ever report a pass, whatever else it found.
   const overall = evaluated === 'pass' && !complete ? 'unknown' : evaluated;
-  return { overall, gates, complete };
+  return {
+    overall,
+    gates,
+    complete,
+    // Null means validity checks were not run for this job (for example an
+    // engine other than Gaussian); it is never reported as a pass.
+    validity: validity === null ? null : summarizeValidity(validity),
+  };
 }

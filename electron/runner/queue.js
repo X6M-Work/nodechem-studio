@@ -8,6 +8,7 @@ import {
 } from '../../src/shared/workflowGraph.js';
 import { conditionFields, evaluateCondition } from '../../src/shared/controlFlow.js';
 import { engineFor } from '../../src/shared/engines/index.js';
+import { normalizeValidityContext } from '../../src/shared/validityChecks.js';
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const SAFE_CHECKPOINT = /^[A-Za-z0-9._-]{1,124}\.chk$/i;
@@ -117,6 +118,9 @@ function taskRecord(raw, index) {
     outputName,
     settings: routeSettings(raw?.settings),
     gates: raw?.gates && typeof raw.gates === 'object' ? raw.gates : {},
+    // Issue #25: a bounded, serializable validity context travels with the
+    // task so the run record can report scientific checks next to the gates.
+    validity: normalizeValidityContext(raw?.validity),
     checkpointName,
     checkpointFrom,
     condition,
@@ -127,6 +131,7 @@ function taskRecord(raw, index) {
     summary: null,
     history: [],
     gateVerdict: null,
+    parsedSummary: null,
     error: null,
     reason: null,
     previousError: null,
@@ -137,7 +142,9 @@ function taskRecord(raw, index) {
 }
 
 function publicTask(task) {
-  const { inputText, ...rest } = task;
+  // The validity context can carry the whole molecule; the queue panel does
+  // not need it, so keep it out of every published queue event.
+  const { inputText, validity, ...rest } = task;
   return rest;
 }
 
@@ -420,6 +427,22 @@ export class QueueManager {
 
     try {
       const inputText = await fsp.readFile(this.inputPath(queue.id, task.nodeId), 'utf8');
+      // Issue #25: give the run the upstream optimisation evidence it needs to
+      // decide whether a downstream frequency may call its geometry a minimum.
+      const upstreamTask = task.checkpointFrom
+        ? queue.tasks.find((entry) => entry.nodeId === task.checkpointFrom.nodeId) || null
+        : null;
+      const validity = {
+        ...(task.validity || {}),
+        upstream: upstreamTask ? {
+          id: upstreamTask.nodeId,
+          title: upstreamTask.title,
+          state: upstreamTask.status,
+          output: upstreamTask.outputName || null,
+          settings: upstreamTask.validity?.settings || null,
+          parsed: upstreamTask.parsedSummary || null,
+        } : null,
+      };
       const response = await this.runManager.start({
         title: task.title,
         engine: task.engine,
@@ -432,6 +455,7 @@ export class QueueManager {
         scratchDir: queue.options.scratchDir,
         dryRun: queue.options.dryRun,
         gates: task.gates,
+        validity,
         checkpointHandoff,
       });
       task.runId = response.runId;
@@ -446,6 +470,13 @@ export class QueueManager {
       const record = await this.waitForRun(response.runId);
       task.gateVerdict = record.gates?.overall || null;
       task.summary = conditionFields(record.parsed, record.gates);
+      // Keep only the records a downstream validity check needs; the full
+      // parsed output stays in the run folder.
+      task.parsedSummary = record.parsed ? {
+        complete: record.parsed.complete !== false,
+        status: record.parsed.status || null,
+        optimization: { completed: record.parsed.optimization?.completed === true },
+      } : null;
       task.status = record.status === 'completed' ? 'completed'
         : record.status === 'needs-review' ? 'needs-review'
           : record.status === 'cancelled' ? 'cancelled' : 'failed';

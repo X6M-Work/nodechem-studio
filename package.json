@@ -1,0 +1,30 @@
+{
+  "name": "gaussian-node-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Node-first desktop workbench for Gaussian 16 workflows",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22"
+  },
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k -s first \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev:renderer": "vite --host 127.0.0.1",
+    "dev:electron": "wait-on http://127.0.0.1:5173 && electron . --dev",
+    "build": "vite build",
+    "start": "electron .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "node --check electron/main.js && node --check electron/preload.cjs && node --check electron/runner/gaussianRunner.js && node --check electron/runner/runManager.js && node --check src/shared/gaussianOutput.js && node --check src/shared/gaussianInput.js && node --check src/shared/fixtureOutput.js",
+    "bundle": "bash scripts/package-bundle.sh"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.7",
+    "electron": "^45.2.3",
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0",
+    "wait-on": "^9.5.1"
+  }
+}

@@ -130,17 +130,20 @@ describe('installation directory', () => {
 
   it('finds only the platform Link 1 name', () => {
     const dir = '/opt/g16';
-    const onlyPosix = (candidate) => candidate === '/opt/g16/l1';
-    const onlyWindows = (candidate) => candidate === '/opt/g16/l1.exe';
+    // The module deliberately uses the host `path` module: at runtime the
+    // simulated platform is always the host platform, so the separator follows
+    // the machine running the suite (this test runs on the Windows CI runner).
+    const onlyPosix = (candidate) => candidate === path.join(dir, 'l1');
+    const onlyWindows = (candidate) => candidate === path.join(dir, 'l1.exe');
 
     expect(link1For(dir, 'linux', { exists: onlyPosix }))
-      .toEqual({ path: '/opt/g16/l1', exists: true });
+      .toEqual({ path: path.join(dir, 'l1'), exists: true });
     expect(link1For(dir, 'linux', { exists: onlyWindows }))
-      .toEqual({ path: '/opt/g16/l1', exists: false });
+      .toEqual({ path: path.join(dir, 'l1'), exists: false });
     expect(link1For(dir, 'win32', { exists: onlyWindows }))
-      .toEqual({ path: '/opt/g16/l1.exe', exists: true });
+      .toEqual({ path: path.join(dir, 'l1.exe'), exists: true });
     expect(link1For(dir, 'win32', { exists: onlyPosix }))
-      .toEqual({ path: '/opt/g16/l1.exe', exists: false });
+      .toEqual({ path: path.join(dir, 'l1.exe'), exists: false });
   });
 });
 

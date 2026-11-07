@@ -20,6 +20,12 @@ import {
   routePresetIdFor,
 } from '../shared/routePresets.js';
 import { parseStructure } from '../shared/structureImport.js';
+import {
+  TS_FORCE_CONSTANT_OPTIONS,
+  checkTsForceConstants,
+  forceConstantsFor,
+  jobKeywordFor,
+} from '../shared/tsForceConstants.js';
 import { runClusterAction } from './clusterExport.js';
 
 const desktop = window.desktop || null;
@@ -114,7 +120,9 @@ const project = {
     calcNode('ts-opt', 'TS', 'TS guess optimization', 290, 40, {
       state: 'passed',
       output: { file: 'ts_opt.log', size: '2.1 MB' },
-      settings: { jobType: 'Opt=TS', checkpoint: 'ts_opt.chk' },
+      // Issue #15: the seeded saddle search must use the safe curvature form,
+      // not a bare Opt=TS.
+      settings: { jobType: 'Opt=TS', forceConstants: 'CalcFC', checkpoint: 'ts_opt.chk' },
     }),
     calcNode('ts-freq', 'Freq', 'TS frequency', 290, 250, {
       state: 'review',
@@ -220,10 +228,7 @@ function kindForJob(jobType) {
 }
 
 function routeShort(settings) {
-  const job = settings.jobType === 'IRC'
-    ? `IRC(${settings.ircDirection === 'both' ? 'forward,reverse' : settings.ircDirection})`
-    : settings.jobType;
-  return `${settings.method}/${settings.basis} ${job}`;
+  return `${settings.method}/${settings.basis} ${jobKeywordFor(settings)}`;
 }
 
 function routeFull(settings) {
@@ -758,10 +763,35 @@ function calcInspector(node) {
     callout = '<div class="callout green"><strong>Ready.</strong> All prerequisites passed; export the input and run it externally.</div>';
   }
 
+  // Issue #15: the force-constant choice is valid or not independently of the
+  // node's run state, so it gets its own callouts.
+  const tsIssues = tsForceConstantIssues(node);
+  callout += tsIssues.errors
+    .map((message) => `<div class="callout"><strong>Cannot export.</strong> ${esc(message)}</div>`)
+    .join('');
+  callout += tsIssues.warnings
+    .map((message) => `<div class="callout"><strong>Warning.</strong> This block ${esc(message)}</div>`)
+    .join('');
+
+  const tsForceField = s.jobType === 'Opt=TS'
+    ? [
+      selectField(
+        'Force constants',
+        'forceConstants',
+        TS_FORCE_CONSTANT_OPTIONS.map((option) => [option.id, option.label]),
+        forceConstantsFor(s),
+      ),
+      forceConstantsFor(s) === 'ReadFC'
+        ? '<div class="field full"><span class="inspector-note">ReadFC reads force constants from this block’s checkpoint hand-off. Connect a Freq or Opt=CalcFC block below.</span></div>'
+        : '',
+    ].join('')
+    : '';
+
   const jobGroup = group('Job', s.jobType, true, [
     inputField('Title', 'title', node.title, { full: true }),
     selectField('Job type', 'jobType', JOB_TYPES, s.jobType),
     s.jobType === 'IRC' ? selectField('IRC direction', 'ircDirection', IRC_DIRECTIONS, s.ircDirection) : '',
+    tsForceField,
     `<div class="field"><label>Memory</label><div class="field-row">
       <input class="input" type="number" min="1" max="512" data-node-field="memory" value="${esc(s.memory)}">
       <select class="select" data-node-field="memoryUnit">${MEMORY_UNITS.map(([value, label]) => `<option value="${value}"${s.memoryUnit === value ? ' selected' : ''}>${label}</option>`).join('')}</select>
@@ -1751,12 +1781,26 @@ function hasOrdinaryCycle() {
 function validateGraph() {
   const conditions = state.project.nodes.filter((node) => node.type === 'condition').length;
   const loops = state.project.edges.filter((edge) => edge.type === 'loop').length;
-  if (hasOrdinaryCycle()) {
+  const findings = state.project.nodes
+    .filter((node) => node.type === 'calc')
+    .map((node) => ({ node, ...tsForceConstantIssues(node) }));
+  const errors = findings.flatMap(({ node, errors: list }) => list.map((message) => `${node.title}: ${message}`));
+  const warnings = findings.flatMap(({ node, warnings: list }) => list.map((message) => `${node.title} ${message}`));
+  if (errors.length > 0) {
+    const more = errors.length > 1 ? ` · +${errors.length - 1} more` : '';
+    state.statusMessage = `Validation failed · ${errors[0]}${more}`;
+    toast('Validation found a blocking issue in a transition-state block.');
+  } else if (hasOrdinaryCycle()) {
     state.statusMessage = 'Structure warning · an ordinary dependency cycle exists. Use an explicit Loop block.';
     toast('Validation found an ordinary cycle.');
   } else {
-    state.statusMessage = `Structure valid · ${state.project.nodes.length} blocks · ${state.project.edges.length} connections · ${conditions} condition${conditions === 1 ? '' : 's'} · ${loops} loop${loops === 1 ? '' : 's'}. Branch and loop execution is planned.`;
-    toast('Structure valid. Branch and loop execution is planned.');
+    const warningText = warnings.length
+      ? ` · ${warnings.length} warning${warnings.length === 1 ? '' : 's'}`
+      : '';
+    state.statusMessage = `Structure valid${warningText} · ${state.project.nodes.length} blocks · ${state.project.edges.length} connections · ${conditions} condition${conditions === 1 ? '' : 's'} · ${loops} loop${loops === 1 ? '' : 's'}. Branch and loop execution is planned.`;
+    toast(warnings.length
+      ? `Structure valid with ${warnings.length} warning${warnings.length === 1 ? '' : 's'}.`
+      : 'Structure valid. Branch and loop execution is planned.');
   }
   updateCounts();
 }
@@ -1802,13 +1846,26 @@ function checkpointNameFor(node) {
 }
 
 function oldCheckpointFor(node) {
-  const edge = state.project.edges.find((item) => item.to === node.id && item.type === 'checkpoint');
-  if (!edge) return '';
-  const source = nodeById(edge.from);
+  const source = checkpointSourceNode(node);
   return source ? checkpointNameFor(source) : '';
 }
 
+/** The block whose checkpoint feeds this one, or null. Mirrors %OldChk. */
+function checkpointSourceNode(node) {
+  const edge = state.project.edges.find((item) => item.to === node.id && item.type === 'checkpoint');
+  return edge ? nodeById(edge.from) : null;
+}
+
+/** Issue #15 findings for a node's force-constant choice. */
+function tsForceConstantIssues(node) {
+  if (node?.type !== 'calc') return { errors: [], warnings: [] };
+  return checkTsForceConstants({ settings: node.settings, upstream: checkpointSourceNode(node) });
+}
+
 function buildInputForNode(node) {
+  // A ReadFC TS block without a usable checkpoint hand-off has nothing to read.
+  const issues = tsForceConstantIssues(node);
+  if (issues.errors.length > 0) throw new Error(issues.errors[0]);
   const settings = {
     ...node.settings,
     charge: state.project.molecule.charge,

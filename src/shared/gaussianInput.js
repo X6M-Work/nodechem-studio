@@ -3,6 +3,13 @@
  * Pure function: no DOM, no filesystem. The Electron runner writes the result.
  */
 
+import {
+  forceConstantsFor,
+  hasOptKeyword,
+  isTsJob,
+  jobKeywordFor,
+} from './tsForceConstants.js';
+
 export const DEMO_WATER = [
   { element: 'O', x: 0.000000, y: 0.000000, z: 0.117300 },
   { element: 'H', x: 0.000000, y: 0.757200, z: -0.469200 },
@@ -24,12 +31,11 @@ function finiteNumber(value, label, { min = -Infinity, max = Infinity } = {}) {
 }
 
 export function routeFor(settings) {
-  const jobType = oneLine(settings.jobType, 'Opt');
   const method = oneLine(settings.method, 'B3LYP');
   const basis = oneLine(settings.basis, '6-31G(d)');
-  const job = jobType === 'IRC'
-    ? `IRC(${settings.ircDirection === 'both' ? 'forward,reverse' : (settings.ircDirection || 'forward')})`
-    : jobType;
+  // One job keyword, composed in one place: a TS job and its force constants
+  // must never produce a second `Opt`.
+  const job = jobKeywordFor(settings);
   const tokens = [`#p ${method}/${basis} ${job}`];
   if (settings.dispersion) tokens.push(`EmpiricalDispersion=${settings.dispersion}`);
   if (settings.scf) tokens.push(`SCF=${settings.scf}`);
@@ -39,7 +45,15 @@ export function routeFor(settings) {
   if (settings.solvation) {
     tokens.push(`SCRF=(${settings.solvationModel || 'PCM'},Solvent=${settings.solvent || 'Water'})`);
   }
-  if (settings.customKeywords) tokens.push(oneLine(settings.customKeywords));
+  const customKeywords = oneLine(settings.customKeywords);
+  if (customKeywords) {
+    // The job keyword above already owns `Opt`; a second one is ambiguous in
+    // the route section and silently drops one of the two.
+    if (hasOptKeyword(job) && hasOptKeyword(customKeywords)) {
+      throw new Error('Extra keywords must not add a second Opt keyword; set the job type and force constants instead.');
+    }
+    tokens.push(customKeywords);
+  }
   return tokens.join(' ');
 }
 
@@ -83,6 +97,11 @@ export function buildGaussianInput({
   const checkpoint = oneLine(settings.checkpoint || inputName.replace(/\.(gjf|com)$/i, '.chk'));
   if (!SAFE_NAME.test(checkpoint) || !/\.chk$/i.test(checkpoint)) {
     throw new Error('Checkpoint name must be a safe .chk basename.');
+  }
+  // ReadFC has nothing to read without an explicit hand-off; emitting it would
+  // build a route that can only fail at run time.
+  if (isTsJob(settings.jobType) && forceConstantsFor(settings) === 'ReadFC' && !oldCheckpoint) {
+    throw new Error('ReadFC needs a checkpoint hand-off; connect a Freq or Opt=CalcFC block as the checkpoint source, or choose CalcFC.');
   }
 
   const lines = [

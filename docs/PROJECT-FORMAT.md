@@ -1,0 +1,184 @@
+# NodeChem Studio project format
+
+Status: normative for `schemaVersion: 1`. This document is the contract between
+the app and anything that reads or writes a project file.
+
+## 1. File identity
+
+| Property | Value |
+| --- | --- |
+| Extension | `.ncs` — required, case-insensitive on read |
+| MIME type | `application/x-nodechem-studio-project` |
+| Encoding | UTF-8 |
+| Content | canonical JSON (the extension names the product, not the encoding) |
+| Cardinality | one file = one project; no sidecar files required to open it |
+| Size cap | 8 MiB before parsing |
+
+There is exactly one accepted extension. `.ghproject.json`, `.json` and any
+other suffix are refused on open and on save. The format has no released
+predecessor to stay compatible with, so no alias is maintained.
+
+The extension is registered with the OS through electron-builder
+`fileAssociations`, so a double-clicked `.ncs` opens NodeChem Studio.
+
+## 2. Canonical serialization
+
+A saved file is produced by `stringifyProject()` in
+`src/shared/projectSchema.js`:
+
+- input is validated and normalized first; an invalid project is never written;
+- keys appear in the fixed order defined by the normalizers, so the same
+  logical project always serializes to the same bytes;
+- `JSON.stringify(project, null, 2)` — two-space indent, `\n` line endings;
+- exactly one trailing `\n`;
+- no BOM is written; a BOM is tolerated and stripped on read.
+
+Consequence: `open → save` of an unmodified project is byte-identical, which
+makes project files diffable in git.
+
+Validation is non-throwing: `parseProjectText()` and `stringifyProject()`
+return `{ ok, errors[], warnings[], project, migrated, schemaVersion }`, where
+every error carries a JSON path (`nodes[3].settings.basis`).
+
+## 3. Versioning
+
+- `schemaVersion` is currently `1`.
+- A file with no `schemaVersion`, or `0`, is treated as v0.1 and migrated by
+  filling documented defaults; the result reports `migrated: true`.
+- A file with a version **above** the build's `SCHEMA_VERSION` is rejected with
+  an "update NodeChem Studio" message. The app never guesses at a newer format.
+- Unknown keys are warnings, not errors, so a forward-compatible reader can
+  ignore fields it does not know. Unknown keys are dropped on save.
+
+## 4. Document schema
+
+Top level, all six keys required after normalization:
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `schemaVersion` | integer | `1` |
+| `name` | string | ≤ 200 chars, defaults to `Untitled project` |
+| `molecule` | object | see below |
+| `defaults` | object | project-wide route defaults |
+| `nodes[]` | array | workflow blocks |
+| `edges[]` | array | connections between blocks |
+
+`molecule`:
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `smiles` | string | optional |
+| `charge` | integer | default 0 |
+| `multiplicity` | integer | default 1 |
+| `fragments[]` | string[] | ≤ 64, ≤ 400 chars each |
+| `coords[]` | object[] | `{ element, x, y, z }`, ≤ 1000 atoms, Å |
+
+`defaults`:
+
+| Key | Type | Notes |
+| --- | --- | --- |
+| `engine` | enum | `gaussian`, `xtb` |
+| `method` | string | Gaussian functional / xTB method default |
+| `basis` | string | Gaussian basis |
+| `memory`, `memoryUnit` | string, enum | Gaussian-only |
+| `nproc` | integer | 1–1024 |
+
+`nodes[]` — common keys `id`, `type`, `kind`, `title`, `state`, `x`, `y`.
+Type-specific payloads:
+
+| `type` | Payload |
+| --- | --- |
+| `calc` | `settings` (route), `output` (`{ file, size }` or null), `checkpointFrom` (node id or null) |
+| `condition` | `condition { expression, unknown, notes }` |
+| `loop` | `loop { maxAttempts, mode, target, until }` |
+| `merge` | `merge { policy, notes }` |
+| `output` | `output { bundle, manifest, notes }` |
+| `note` | `note { text }` |
+
+`calc.settings` accepts exactly these keys — anything else is dropped:
+
+`jobType`, `method`, `basis`, `memory`, `memoryUnit`, `nproc`, `checkpoint`,
+`charge`, `multiplicity`, `dispersion`, `scf`, `grid`, `population`,
+`verbosity`, `solvation`, `solvationModel`, `solvent`, `customKeywords`,
+`ircDirection`, `optConvergence`, `forceConstants`, `xtbMethod`,
+`xtbOptLevel`, `gates`.
+
+`settings.gates`: `termination`, `scf`, `imaginary`, `minMagnitude`, `thermo`,
+`finalEnergy`.
+
+`edges[]` — `id`, `from`, `to`, `type` (`dependency`, `checkpoint`, `branch`,
+`loop`), plus `branch` (`true`/`false`) on branch edges. Self-edges, duplicate
+ids, unknown endpoints and ordinary cycles are rejected; `loop` edges are the
+documented way to express a retry cycle.
+
+## 5. Limits
+
+| Limit | Value |
+| --- | --- |
+| File size | 8 MiB |
+| Nodes | 2 000 |
+| Edges | 4 000 |
+| Fragments | 64 |
+| Atoms | 1 000 |
+| Errors reported | 100 |
+| Warnings reported | 200 |
+
+## 6. File naming
+
+New projects are suggested as `<stem>.ncs`, where the stem is the project name
+lowercased, NFKD-folded (accents become base letters), stripped of anything
+outside `[A-Za-z0-9._ -]`, whitespace collapsed to single dashes, truncated to
+60 characters, and `untitled` when nothing survives:
+
+```
+"Diels–Alder TS / run 2"  →  diels-alder-ts-run-2.ncs
+"Réaction de Diels–Alder" →  reaction-de-diels-alder.ncs
+```
+
+`src/shared/projectFile.js` is the only module that knows these rules; the
+dialogs, the save-path check and the tests all delegate to it.
+
+## 7. On-disk layout
+
+### 7.1 The project document
+
+Lives wherever the user saves it. The app stores no registry, no recent-files
+index and no project database — the path held in memory is the only handle, and
+nothing outside the file is required to open a project.
+
+### 7.2 Application data directory
+
+`userData`, pinned to `<appData>/gaussian-node-studio`. The folder name is a
+deliberate constant: Electron would otherwise derive it from the package name,
+and pinning keeps existing run folders and preferences across product renames.
+
+```
+<userData>/
+  runs/
+    <runId>/
+      request.json      # what was asked for (engine, argv, names, settings)
+      <input>           # the exact bytes handed to the engine (.gjf or .xyz)
+      <output>          # the engine's stdout/log as written to disk
+      run.json          # status, gates, parsed summary, hashes, provenance
+      scratch/          # GAUSS_SCRDIR for this run
+  queues/
+    <queueId>/
+      queue.json        # durable workflow task list and per-task state
+```
+
+`runId` and `queueId` are validated before any path join; a record is never
+addressed by user-typed text.
+
+### 7.3 Not in the project file
+
+Runs, queues, cluster exports and scratch data are **not** referenced by the
+project document beyond `calc.output` (the discovered output file name and
+size). Moving a `.ncs` file does not move its run history, and deleting the
+app data directory does not damage a project.
+
+## 8. Changing the format
+
+Any change that alters the meaning or shape of an existing field requires a
+`schemaVersion` bump and a documented migration. Additive fields that a v1
+reader would drop are also a bump, because a save by an older build would lose
+them. Update this document in the same commit as the schema change.

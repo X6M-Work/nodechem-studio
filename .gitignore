@@ -8,3 +8,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# A worktree may symlink the shared install; the slash form above does not match
+# a symlink, so both spellings are ignored.
+node_modules

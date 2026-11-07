@@ -198,6 +198,8 @@ A project is a single JSON document with `schemaVersion: 1`.
 - Unversioned v0.1 files migrate on open; a file from a newer schema version is rejected.
 - Saves are canonical: fixed key order, normalized numbers and a trailing newline. Saving an
   unchanged project is byte-stable.
+- Project files use the `.ncs` extension and are canonical JSON inside; the normative definition
+  of the document and of the layout the app writes is `docs/PROJECT-FORMAT.md`.
 - Limits: 8 MB per project, 2000 nodes, 4000 connections and 64 fragments. Unknown fields are
   dropped on save with a warning.
 - Save writes back to the opened file; a new project prompts for a path. Closing with unsaved

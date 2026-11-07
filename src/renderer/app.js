@@ -21,10 +21,17 @@ import {
 } from '../shared/routePresets.js';
 import { parseStructure } from '../shared/structureImport.js';
 import {
+  OPT_CONVERGENCE_OPTIONS,
   TS_FORCE_CONSTANT_OPTIONS,
   checkTsForceConstants,
   forceConstantsFor,
+  freqGeometryWarnings,
+  gridFor,
+  isOptJob,
   jobKeywordFor,
+  optConvergenceFor,
+  optConvergenceWarnings,
+  requiresUltraFineGrid,
 } from '../shared/tsForceConstants.js';
 import { runClusterAction } from './clusterExport.js';
 import { provenanceSummary, syncVerifyButton, verifyRunInput } from './provenance.js';
@@ -124,8 +131,11 @@ const project = {
       state: 'passed',
       output: { file: 'ts_opt.log', size: '2.1 MB' },
       // Issue #15: the seeded saddle search must use the safe curvature form,
-      // not a bare Opt=TS.
-      settings: { jobType: 'Opt=TS', forceConstants: 'CalcFC', checkpoint: 'ts_opt.chk' },
+      // not a bare Opt=TS. Issue #16: its transition state feeds a frequency
+      // job, so optimize tightly (and, with B3LYP, default to UltraFine).
+      settings: {
+        jobType: 'Opt=TS', forceConstants: 'CalcFC', optConvergence: 'Tight', checkpoint: 'ts_opt.chk',
+      },
     }),
     calcNode('ts-freq', 'Freq', 'TS frequency', 290, 250, {
       state: 'review',
@@ -238,7 +248,10 @@ function routeFull(settings) {
   const tokens = [`#p ${routeShort(settings)}`];
   if (settings.dispersion) tokens.push(`EmpiricalDispersion=${settings.dispersion}`);
   if (settings.scf) tokens.push(`SCF=${settings.scf}`);
-  if (settings.grid) tokens.push(`Integral=${settings.grid}`);
+  // Same derivation as the written route: an explicit grid, else the
+  // UltraFine default for a DFT optimization at tight convergence.
+  const grid = gridFor(settings);
+  if (grid) tokens.push(`Integral=${grid}`);
   if (settings.population) tokens.push(`Pop=${settings.population}`);
   if (settings.verbosity) tokens.push(`Output=${settings.verbosity}`);
   if (settings.solvation) tokens.push(`SCRF=(${settings.solvationModel},Solvent=${settings.solvent})`);
@@ -756,6 +769,21 @@ function renderProjectInspector() {
   </div>`;
 }
 
+/** Issue #16: the grid select shows the derived UltraFine default as an option label. */
+function gridOptionsFor(settings) {
+  const implied = requiresUltraFineGrid(settings) && !String(settings.grid || '').trim();
+  if (!implied) return GRID_OPTIONS;
+  return [['', 'Default → UltraFine'], ...GRID_OPTIONS.slice(1)];
+}
+
+/** Issue #16: explain the derived grid so the route keyword is not a surprise. */
+function gridDefaultNote(settings) {
+  if (!requiresUltraFineGrid(settings) || String(settings.grid || '').trim()) return '';
+  return `<div class="field full"><span class="inspector-note">A DFT optimization at `
+    + `${esc(optConvergenceFor(settings))} convergence defaults to <code>Int=UltraFine</code>, `
+    + 'as Gaussian recommends with <code>Opt=Tight</code>. Choose a grid to override it.</span></div>';
+}
+
 function calcInspector(node) {
   const s = node.settings;
   const ins = incoming(node.id);
@@ -799,6 +827,11 @@ function calcInspector(node) {
   callout += tsIssues.warnings
     .map((message) => `<div class="callout"><strong>Warning.</strong> This block ${esc(message)}</div>`)
     .join('');
+  // Issue #16: grid and frequency-provenance advice is also independent of the
+  // node's run state.
+  callout += optConvergenceIssues(node)
+    .map((message) => `<div class="callout"><strong>Warning.</strong> This block ${esc(message)}</div>`)
+    .join('');
 
   const tsForceField = s.jobType === 'Opt=TS'
     ? [
@@ -818,6 +851,14 @@ function calcInspector(node) {
     inputField('Title', 'title', node.title, { full: true }),
     selectField('Job type', 'jobType', JOB_TYPES, s.jobType),
     s.jobType === 'IRC' ? selectField('IRC direction', 'ircDirection', IRC_DIRECTIONS, s.ircDirection) : '',
+    isOptJob(s.jobType)
+      ? selectField(
+        'Optimization convergence',
+        'optConvergence',
+        OPT_CONVERGENCE_OPTIONS.map((option) => [option.id, option.label]),
+        optConvergenceFor(s),
+      )
+      : '',
     tsForceField,
     `<div class="field"><label>Memory</label><div class="field-row">
       <input class="input" type="number" min="1" max="512" data-node-field="memory" value="${esc(s.memory)}">
@@ -836,7 +877,8 @@ function calcInspector(node) {
     selectField('Basis set', 'basis', BASIS_SETS, s.basis),
     selectField('Dispersion', 'dispersion', DISPERSIONS, s.dispersion),
     selectField('SCF convergence', 'scf', SCF_OPTIONS, s.scf),
-    selectField('Integration grid', 'grid', GRID_OPTIONS, s.grid),
+    selectField('Integration grid', 'grid', gridOptionsFor(s), s.grid),
+    gridDefaultNote(s),
     selectField('Population analysis', 'population', POP_OPTIONS, s.population),
     selectField('Output verbosity', 'verbosity', VERBOSITY, s.verbosity),
   ].join(''));
@@ -1845,7 +1887,10 @@ function validateGraph() {
   const loops = state.project.edges.filter((edge) => edge.type === 'loop').length;
   const findings = state.project.nodes
     .filter((node) => node.type === 'calc')
-    .map((node) => ({ node, ...tsForceConstantIssues(node) }));
+    .map((node) => {
+      const ts = tsForceConstantIssues(node);
+      return { node, errors: ts.errors, warnings: [...ts.warnings, ...optConvergenceIssues(node)] };
+    });
   const errors = findings.flatMap(({ node, errors: list }) => list.map((message) => `${node.title}: ${message}`));
   const warnings = findings.flatMap(({ node, warnings: list }) => list.map((message) => `${node.title} ${message}`));
   if (errors.length > 0) {
@@ -1922,6 +1967,15 @@ function checkpointSourceNode(node) {
 function tsForceConstantIssues(node) {
   if (node?.type !== 'calc') return { errors: [], warnings: [] };
   return checkTsForceConstants({ settings: node.settings, upstream: checkpointSourceNode(node) });
+}
+
+/** Issue #16 findings for a node's optimization convergence and integration grid. */
+function optConvergenceIssues(node) {
+  if (node?.type !== 'calc') return [];
+  return [
+    ...optConvergenceWarnings(node.settings),
+    ...freqGeometryWarnings({ settings: node.settings, upstream: checkpointSourceNode(node) }),
+  ];
 }
 
 function settingsForNode(node) {

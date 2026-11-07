@@ -5,6 +5,7 @@
 
 import {
   forceConstantsFor,
+  gridFor,
   hasOptKeyword,
   isTsJob,
   jobKeywordFor,
@@ -46,7 +47,9 @@ function routeValues(settings = {}) {
     basis: oneLine(settings.basis, '6-31G(d)'),
     dispersion: settings.dispersion ? oneLine(settings.dispersion) : null,
     scf: settings.scf ? oneLine(settings.scf) : null,
-    grid: settings.grid ? oneLine(settings.grid) : null,
+    // UltraFine is derived, not stored: a DFT optimization at tight convergence
+    // gets the grid Gaussian recommends unless the user chose one explicitly.
+    grid: gridFor(settings) || null,
     population: settings.population ? oneLine(settings.population) : null,
     verbosity: settings.verbosity ? oneLine(settings.verbosity) : null,
     solvationModel: solvated ? oneLine(settings.solvationModel, 'PCM') : null,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildGaussianInput, DEMO_WATER, routeFor, outputNameFor } from '../src/shared/gaussianInput.js';
+import { buildGaussianInput, DEMO_WATER, methodBlockFor, routeFor, outputNameFor } from '../src/shared/gaussianInput.js';
 import { defaultSettings } from '../src/shared/projectSchema.js';
 
 const baseSettings = {
@@ -178,6 +178,103 @@ describe('issue #15 — transition-state force constants', () => {
       molecule,
       inputName: 'ts_opt.gjf',
     })).toThrow(/ReadFC needs a checkpoint hand-off/);
+  });
+});
+
+describe('issue #16 — optimization convergence', () => {
+  const opt = (overrides = {}) => ({ ...baseSettings, jobType: 'Opt', ...overrides });
+  const routeOf = (overrides = {}) => routeFor(opt(overrides));
+
+  it('emits a bare Opt when the convergence is left at Default', () => {
+    expect(routeOf()).toBe('#p B3LYP/6-31G(d) Opt');
+    expect(routeOf({ optConvergence: '' })).toBe('#p B3LYP/6-31G(d) Opt');
+    expect(routeOf({ optConvergence: 'Loose' })).toBe('#p B3LYP/6-31G(d) Opt');
+  });
+
+  it('emits Opt=Tight and Opt=VeryTight as a single job keyword', () => {
+    expect(routeOf({ method: 'MP2', optConvergence: 'Tight' }))
+      .toBe('#p MP2/6-31G(d) Opt=Tight');
+    expect(routeOf({ method: 'MP2', optConvergence: 'VeryTight' }))
+      .toBe('#p MP2/6-31G(d) Opt=VeryTight');
+  });
+
+  it('still emits Opt=TS when the convergence is left at Default', () => {
+    expect(routeOf({ jobType: 'Opt=TS', forceConstants: 'default' }))
+      .toBe('#p B3LYP/6-31G(d) Opt=TS');
+    expect(routeOf({ jobType: 'Opt=TS', forceConstants: 'default', optConvergence: 'Tight' }))
+      .toBe('#p B3LYP/6-31G(d) Opt=(TS,Tight) Integral=UltraFine');
+  });
+
+  it('composes CalcFC force constants with Tight into one Opt= keyword', () => {
+    const route = routeOf({
+      method: 'MP2', jobType: 'Opt=TS', forceConstants: 'CalcFC', optConvergence: 'Tight',
+    });
+    expect(route).toBe('#p MP2/6-31G(d) Opt=(TS,CalcFC,NoEigenTest,Tight)');
+    expect(route.match(/Opt=/g)).toHaveLength(1);
+
+    const text = buildGaussianInput({
+      settings: opt({
+        method: 'MP2', jobType: 'Opt=TS', forceConstants: 'CalcFC', optConvergence: 'Tight',
+        checkpoint: 'ts_opt.chk',
+      }),
+      molecule,
+      inputName: 'ts_opt.gjf',
+    });
+    expect(text.split('\n').find((line) => line.startsWith('#p')))
+      .toBe('#p MP2/6-31G(d) Opt=(TS,CalcFC,NoEigenTest,Tight)');
+  });
+
+  it('composes CalcFC with VeryTight into one Opt= keyword', () => {
+    const route = routeOf({
+      method: 'MP2', jobType: 'Opt=TS', forceConstants: 'CalcFC', optConvergence: 'VeryTight',
+    });
+    expect(route).toBe('#p MP2/6-31G(d) Opt=(TS,CalcFC,NoEigenTest,VeryTight)');
+    expect(route.match(/Opt=/g)).toHaveLength(1);
+  });
+
+  it('composes the convergence into Opt Freq without a second Opt keyword', () => {
+    const route = routeOf({ jobType: 'Opt Freq', method: 'MP2', optConvergence: 'Tight' });
+    expect(route).toBe('#p MP2/6-31G(d) Opt=Tight Freq');
+    expect(route.match(/Opt/g)).toHaveLength(1);
+  });
+
+  it('ignores the convergence choice for a job that does not optimize', () => {
+    expect(routeOf({ jobType: 'Freq', optConvergence: 'Tight' })).toBe('#p B3LYP/6-31G(d) Freq');
+    expect(routeOf({ jobType: 'SP', optConvergence: 'VeryTight' })).toBe('#p B3LYP/6-31G(d) SP');
+  });
+
+  it('defaults a DFT optimization at Tight convergence to UltraFine', () => {
+    expect(routeOf({ optConvergence: 'Tight' }))
+      .toBe('#p B3LYP/6-31G(d) Opt=Tight Integral=UltraFine');
+    expect(routeOf({ optConvergence: 'VeryTight' }))
+      .toBe('#p B3LYP/6-31G(d) Opt=VeryTight Integral=UltraFine');
+    expect(methodBlockFor(opt({ optConvergence: 'Tight' })).grid).toBe('UltraFine');
+
+    const text = buildGaussianInput({
+      settings: opt({ optConvergence: 'Tight', checkpoint: 'opt.chk' }),
+      molecule,
+      inputName: 'opt.gjf',
+    });
+    expect(text.split('\n')).toContain('#p B3LYP/6-31G(d) Opt=Tight Integral=UltraFine');
+  });
+
+  it('keeps an explicit grid instead of the UltraFine default', () => {
+    expect(routeOf({ optConvergence: 'Tight', grid: 'Fine' }))
+      .toBe('#p B3LYP/6-31G(d) Opt=Tight Integral=Fine');
+    const explicit = routeOf({ optConvergence: 'Tight', grid: 'UltraFine' });
+    expect(explicit).toBe('#p B3LYP/6-31G(d) Opt=Tight Integral=UltraFine');
+    expect(explicit.match(/Integral=/g)).toHaveLength(1);
+  });
+
+  it('does not default the grid for a non-DFT method', () => {
+    expect(routeOf({ method: 'MP2', optConvergence: 'Tight' }))
+      .toBe('#p MP2/6-31G(d) Opt=Tight');
+    expect(methodBlockFor(opt({ method: 'MP2', optConvergence: 'Tight' })).grid).toBeNull();
+  });
+
+  it('still rejects extra keywords that would add a second Opt keyword', () => {
+    expect(() => routeOf({ optConvergence: 'Tight', customKeywords: 'Opt=(Tight)' }))
+      .toThrow(/second Opt keyword/);
   });
 });
 

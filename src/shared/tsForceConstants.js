@@ -1,5 +1,6 @@
 /**
- * Transition-state force-constant options (issue #15).
+ * Job keyword composition: transition-state force constants (issue #15) and
+ * optimization convergence (issue #16).
  *
  * A Berny transition-state search needs real curvature information. Without it
  * Gaussian starts from a valence-force-field Hessian guessed from atomic radii,
@@ -8,9 +9,15 @@
  * the default approximate Hessian must always be improved". A bare `Opt=TS`
  * therefore either stalls or walks to a different stationary point.
  *
- * This module is the single place that turns a job type plus a force-constant
- * choice into the route's job keyword, so composing `Opt=TS` with force
- * constants can never emit two `Opt` keywords.
+ * The G16 manual for `Opt=Tight` is equally direct: a tight optimization takes
+ * more steps but "may be necessary to ensure adequate convergence and
+ * reliability of frequencies computed in a subsequent job step", and for DFT
+ * "Int=UltraFine should be specified as well".
+ *
+ * This module is the single place that turns a job type, a force-constant
+ * choice and a convergence choice into the route's job keyword, so composing
+ * `Opt=TS` with force constants and convergence can never emit two `Opt`
+ * keywords.
  *
  * NoEigenTest: Gaussian runs the curvature test by default for TS searches. It
  * is suppressed only for `CalcFC`, where the Hessian is computed once at a
@@ -19,6 +26,8 @@
  * and `ReadFC` reads one written by a real frequency job, so both keep the
  * test: it is the guard that the curvature really is a single saddle.
  */
+
+import { isDftMethod } from './routePresets.js';
 
 export const TS_JOB_TYPE = 'Opt=TS';
 
@@ -52,8 +61,31 @@ export const TS_FORCE_CONSTANT_IDS = Object.freeze(
 
 export const DEFAULT_TS_FORCE_CONSTANTS = 'CalcFC';
 
+/**
+ * Optimization-convergence choices, in inspector order. `''` is Gaussian's
+ * default and adds no Opt flag; the others append one flag inside the existing
+ * `Opt=` keyword.
+ */
+export const OPT_CONVERGENCE_OPTIONS = Object.freeze([
+  { id: '', label: 'Default — Gaussian cutoffs' },
+  { id: 'Tight', label: 'Tight — recommended before a frequency job' },
+  { id: 'VeryTight', label: 'Very tight — for very flat modes' },
+]);
+
+export const OPT_CONVERGENCE_IDS = Object.freeze(
+  OPT_CONVERGENCE_OPTIONS.map((option) => option.id),
+);
+
+export const DEFAULT_OPT_CONVERGENCE = '';
+
+/** The grid Gaussian 16 recommends for DFT optimizations at tight convergence. */
+export const ULTRAFINE_GRID = 'UltraFine';
+
 /** An `Opt` keyword at the start of a token, e.g. `Opt`, `Opt=TS`, `Opt=(TS,CalcFC)`. */
 const OPT_KEYWORD = /(^|[^A-Za-z0-9])opt\s*(=|\(|\s|$)/i;
+
+/** A job keyword that optimizes a geometry: `Opt`, `Opt Freq`, `Opt=TS`. */
+const OPT_JOB = /^opt(\s|=|$)/i;
 
 function oneLine(value, fallback = '') {
   return String(value ?? fallback).replace(/[\r\n]+/g, ' ').trim();
@@ -61,6 +93,11 @@ function oneLine(value, fallback = '') {
 
 export function isTsJob(jobType) {
   return oneLine(jobType) === TS_JOB_TYPE;
+}
+
+/** True when the job type is an optimization. */
+export function isOptJob(jobType) {
+  return OPT_JOB.test(oneLine(jobType));
 }
 
 /** True when extra route keywords already carry an `Opt` keyword of their own. */
@@ -84,8 +121,47 @@ export function forceConstantFlags(settings = {}) {
 }
 
 /**
- * The job keyword for a route: `Opt`, `Opt Freq`, `Opt=(TS,CalcFC,NoEigenTest)`,
- * `Freq`, `IRC(forward,reverse)`, `SP`, `Scan`. Always exactly one job keyword.
+ * The stored optimization-convergence choice, or `''` for Gaussian's default.
+ * An unknown value is never emitted as route syntax.
+ */
+export function optConvergenceFor(settings = {}) {
+  const value = oneLine(settings.optConvergence);
+  return OPT_CONVERGENCE_IDS.includes(value) ? value : DEFAULT_OPT_CONVERGENCE;
+}
+
+/**
+ * True when the route should default the integration grid to UltraFine: an
+ * optimization at a requested (non-default) convergence with a DFT method.
+ * VeryTight is stricter than Tight, so the same G16 guidance applies.
+ */
+export function requiresUltraFineGrid(settings = {}) {
+  return isOptJob(settings.jobType)
+    && optConvergenceFor(settings) !== ''
+    && isDftMethod(settings.method);
+}
+
+/**
+ * The grid keyword value: an explicit choice wins, otherwise the DFT + tight
+ * convergence default. `''` means the route carries no Integral keyword.
+ */
+export function gridFor(settings = {}) {
+  const explicit = oneLine(settings.grid);
+  if (explicit) return explicit;
+  return requiresUltraFineGrid(settings) ? ULTRAFINE_GRID : '';
+}
+
+/** True when an explicit grid choice overrides the UltraFine default. */
+export function gridOverridden(settings = {}) {
+  const explicit = oneLine(settings.grid);
+  return requiresUltraFineGrid(settings)
+    && explicit !== ''
+    && explicit.toLowerCase() !== ULTRAFINE_GRID.toLowerCase();
+}
+
+/**
+ * The job keyword for a route: `Opt`, `Opt=Tight`, `Opt Freq`,
+ * `Opt=(TS,CalcFC,NoEigenTest,Tight)`, `Freq`, `IRC(forward,reverse)`, `SP`,
+ * `Scan`. Always exactly one job keyword.
  */
 export function jobKeywordFor(settings = {}) {
   const jobType = oneLine(settings.jobType, 'Opt');
@@ -95,9 +171,19 @@ export function jobKeywordFor(settings = {}) {
       : (oneLine(settings.ircDirection, 'forward') || 'forward');
     return `IRC(${direction})`;
   }
-  if (jobType !== TS_JOB_TYPE) return jobType;
-  const flags = forceConstantFlags(settings);
-  return flags.length === 0 ? TS_JOB_TYPE : `Opt=(${['TS', ...flags].join(',')})`;
+  const convergence = optConvergenceFor(settings);
+  if (jobType === TS_JOB_TYPE) {
+    const flags = ['TS', ...forceConstantFlags(settings)];
+    if (convergence) flags.push(convergence);
+    return flags.length === 1 ? TS_JOB_TYPE : `Opt=(${flags.join(',')})`;
+  }
+  // `Opt` and `Opt Freq` (a frequency after the optimization) take the flag in
+  // the same keyword: `Opt=Tight Freq`, never `Opt=Tight Opt Freq`.
+  if (jobType === 'Opt' || jobType === 'Opt Freq') {
+    const [head, ...rest] = jobType.split(/\s+/);
+    return [convergence ? `${head}=${convergence}` : head, ...rest].join(' ');
+  }
+  return jobType;
 }
 
 /**
@@ -149,3 +235,42 @@ export function checkTsForceConstants({ settings = {}, upstream = null } = {}) {
   }
   return { errors, warnings };
 }
+
+/**
+ * Issue #16: warn when the integration grid overrides the UltraFine default
+ * that Gaussian 16 pairs with Opt=Tight for DFT. Returns human-readable
+ * messages; the caller supplies the JSON path. Never blocks a run.
+ */
+export function optConvergenceWarnings(settings = {}) {
+  const warnings = [];
+  if (!gridOverridden(settings)) return warnings;
+  const grid = oneLine(settings.grid);
+  warnings.push(
+    `uses Integral=${grid} for a DFT optimization at `
+    + `${optConvergenceFor(settings)} convergence. Gaussian's Opt=Tight guidance `
+    + 'specifies Int=UltraFine for DFT as well; the grid was overridden.',
+  );
+  return warnings;
+}
+
+/**
+ * Issue #16: a frequency job that reads the geometry from an optimization left
+ * at Gaussian's default convergence. `upstream` is the checkpoint source node
+ * (`{ id, title, settings }`) or null. Returns human-readable messages; the
+ * caller supplies the JSON path. Never blocks a run.
+ */
+export function freqGeometryWarnings({ settings = {}, upstream = null } = {}) {
+  const warnings = [];
+  if (oneLine(settings.jobType) !== 'Freq' || !upstream) return warnings;
+  const upstreamSettings = upstream.settings || {};
+  if (!isOptJob(upstreamSettings.jobType)) return warnings;
+  if (optConvergenceFor(upstreamSettings) !== '') return warnings;
+  const title = oneLine(upstream.title) || oneLine(upstream.id) || 'the upstream block';
+  warnings.push(
+    `reads its geometry from "${title}", which was optimized at the default `
+    + 'convergence. Gaussian recommends Opt=Tight before a frequency job so the '
+    + 'frequencies are computed on a tightly converged geometry.',
+  );
+  return warnings;
+}
+

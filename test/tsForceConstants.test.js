@@ -12,11 +12,19 @@ import {
 } from '../src/shared/projectSchema.js';
 import {
   DEFAULT_TS_FORCE_CONSTANTS,
+  OPT_CONVERGENCE_IDS,
   TS_FORCE_CONSTANT_IDS,
   checkTsForceConstants,
   forceConstantsFor,
+  freqGeometryWarnings,
+  gridFor,
+  isOptJob,
   jobKeywordFor,
+  optConvergenceFor,
+  optConvergenceWarnings,
+  requiresUltraFineGrid,
 } from '../src/shared/tsForceConstants.js';
+import { isDftMethod } from '../src/shared/routePresets.js';
 
 function baseProject(nodes, edges = []) {
   return {
@@ -319,5 +327,266 @@ describe('issue #15 — documentation', () => {
     expect(readme).toContain('`CalcFC` (default)');
     expect(readme).toMatch(/default\s+approximate Hessian must always be improved/);
     expect(readme).toContain('`ReadFC` needs an explicit checkpoint edge');
+  });
+});
+
+describe('issue #16 — optimization convergence options', () => {
+  const opt = (overrides = {}) => defaultSettings({ jobType: 'Opt', ...overrides });
+
+  it('offers Default, Tight and VeryTight only', () => {
+    expect(OPT_CONVERGENCE_IDS).toEqual(['', 'Tight', 'VeryTight']);
+    expect(defaultSettings().optConvergence).toBe('');
+    expect(optConvergenceFor({ optConvergence: 'Loose' })).toBe('');
+    expect(optConvergenceFor({})).toBe('');
+  });
+
+  it('recognises exactly the optimization job types', () => {
+    for (const jobType of ['Opt', 'Opt Freq', 'Opt=TS']) expect(isOptJob(jobType)).toBe(true);
+    for (const jobType of ['Freq', 'IRC', 'SP', 'Scan']) expect(isOptJob(jobType)).toBe(false);
+  });
+
+  it('composes every force-constant choice with both convergence levels into one Opt keyword', () => {
+    const expected = {
+      CalcFC: {
+        Tight: 'Opt=(TS,CalcFC,NoEigenTest,Tight)',
+        VeryTight: 'Opt=(TS,CalcFC,NoEigenTest,VeryTight)',
+      },
+      CalcAll: { Tight: 'Opt=(TS,CalcAll,Tight)', VeryTight: 'Opt=(TS,CalcAll,VeryTight)' },
+      ReadFC: { Tight: 'Opt=(TS,ReadFC,Tight)', VeryTight: 'Opt=(TS,ReadFC,VeryTight)' },
+      default: { Tight: 'Opt=(TS,Tight)', VeryTight: 'Opt=(TS,VeryTight)' },
+    };
+    for (const choice of TS_FORCE_CONSTANT_IDS) {
+      for (const convergence of ['Tight', 'VeryTight']) {
+        const keyword = jobKeywordFor({
+          jobType: 'Opt=TS', forceConstants: choice, optConvergence: convergence,
+        });
+        expect(keyword).toBe(expected[choice][convergence]);
+        expect(keyword.match(/Opt/g)).toHaveLength(1);
+      }
+    }
+  });
+
+  it('composes Opt and Opt Freq into one Opt keyword', () => {
+    expect(jobKeywordFor({ jobType: 'Opt' })).toBe('Opt');
+    expect(jobKeywordFor({ jobType: 'Opt', optConvergence: 'Tight' })).toBe('Opt=Tight');
+    expect(jobKeywordFor({ jobType: 'Opt', optConvergence: 'VeryTight' })).toBe('Opt=VeryTight');
+    expect(jobKeywordFor({ jobType: 'Opt Freq', optConvergence: 'Tight' })).toBe('Opt=Tight Freq');
+    expect(jobKeywordFor({ jobType: 'Opt Freq', optConvergence: 'VeryTight' })).toBe('Opt=VeryTight Freq');
+  });
+});
+
+describe('issue #16 — UltraFine grid for DFT at tight convergence', () => {
+  const dftOpt = (overrides = {}) => defaultSettings({
+    jobType: 'Opt', method: 'B3LYP', optConvergence: 'Tight', ...overrides,
+  });
+
+  it('classifies methods explicitly, not by name shape', () => {
+    expect(isDftMethod('B3LYP')).toBe(true);
+    expect(isDftMethod('M06-2X')).toBe(true);
+    expect(isDftMethod('ωB97X-D')).toBe(true);
+    expect(isDftMethod('MP2')).toBe(false);
+    expect(isDftMethod('CCSD(T)')).toBe(false);
+    expect(isDftMethod('HF')).toBe(false);
+  });
+
+  it('derives UltraFine only for a DFT optimization at tight convergence', () => {
+    expect(requiresUltraFineGrid(dftOpt())).toBe(true);
+    expect(requiresUltraFineGrid(dftOpt({ optConvergence: 'VeryTight' }))).toBe(true);
+    expect(requiresUltraFineGrid(defaultSettings({ jobType: 'Opt', method: 'B3LYP' }))).toBe(false);
+    expect(requiresUltraFineGrid(dftOpt({ method: 'MP2' }))).toBe(false);
+    expect(requiresUltraFineGrid(dftOpt({ jobType: 'Freq' }))).toBe(false);
+    expect(requiresUltraFineGrid(dftOpt({ jobType: 'SP' }))).toBe(false);
+  });
+
+  it('writes Integral=UltraFine into the route without a second keyword', () => {
+    expect(gridFor(dftOpt())).toBe('UltraFine');
+    expect(routeFor(dftOpt()))
+      .toBe('#p B3LYP/def2-SVP Opt=Tight EmpiricalDispersion=GD3BJ Integral=UltraFine');
+    expect(routeFor(dftOpt()).match(/Integral=/g)).toHaveLength(1);
+  });
+
+  it('lets an explicit grid win over the default', () => {
+    expect(gridFor(dftOpt({ grid: 'Fine' }))).toBe('Fine');
+    expect(gridFor(dftOpt({ grid: 'UltraFine' }))).toBe('UltraFine');
+    expect(gridFor(dftOpt({ grid: 'Fine' }))).toBe('Fine');
+    expect(routeFor(dftOpt({ grid: 'UltraFine' })).match(/Integral=/g)).toHaveLength(1);
+  });
+
+  it('keeps the stored grid empty so the default stays derived, not written back', () => {
+    const settings = dftOpt();
+    expect(settings.grid).toBe('');
+    expect(routeFor(settings)).toContain('Integral=UltraFine');
+    expect(settings.grid).toBe('');
+  });
+
+  it('warns when the DFT grid is overridden, but never blocks', () => {
+    const warnings = optConvergenceWarnings(dftOpt({ grid: 'Fine' }));
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('Integral=Fine');
+    expect(warnings[0]).toContain('Int=UltraFine');
+    expect(warnings[0]).toContain('Tight convergence');
+    expect(optConvergenceWarnings(dftOpt())).toEqual([]);
+    expect(optConvergenceWarnings(dftOpt({ grid: 'UltraFine' }))).toEqual([]);
+    expect(optConvergenceWarnings(defaultSettings({ jobType: 'Opt' }))).toEqual([]);
+  });
+});
+
+describe('issue #16 — frequency after a default-convergence optimization', () => {
+  const upstreamOpt = (settings = {}) => ({
+    id: 'opt-1',
+    title: 'Reactant optimization',
+    settings: defaultSettings({ jobType: 'Opt', ...settings }),
+  });
+
+  it('warns and names the upstream block', () => {
+    const warnings = freqGeometryWarnings({
+      settings: defaultSettings({ jobType: 'Freq' }),
+      upstream: upstreamOpt(),
+    });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('"Reactant optimization"');
+    expect(warnings[0]).toMatch(/default convergence/);
+    expect(warnings[0]).toContain('Opt=Tight');
+  });
+
+  it('is quiet once the optimization requests Tight or VeryTight', () => {
+    for (const optConvergence of ['Tight', 'VeryTight']) {
+      expect(freqGeometryWarnings({
+        settings: defaultSettings({ jobType: 'Freq' }),
+        upstream: upstreamOpt({ optConvergence }),
+      })).toEqual([]);
+    }
+  });
+
+  it('is quiet without a checkpoint hand-off, for a non-Freq consumer, or a non-Opt upstream', () => {
+    expect(freqGeometryWarnings({
+      settings: defaultSettings({ jobType: 'Freq' }), upstream: null,
+    })).toEqual([]);
+    expect(freqGeometryWarnings({
+      settings: defaultSettings({ jobType: 'Opt' }), upstream: upstreamOpt(),
+    })).toEqual([]);
+    expect(freqGeometryWarnings({
+      settings: defaultSettings({ jobType: 'Freq' }),
+      upstream: { id: 'sp-1', title: 'Single point', settings: defaultSettings({ jobType: 'SP' }) },
+    })).toEqual([]);
+  });
+
+  it('also warns for a TS optimization left at the default convergence', () => {
+    const warnings = freqGeometryWarnings({
+      settings: defaultSettings({ jobType: 'Freq' }),
+      upstream: {
+        id: 'ts-1',
+        title: 'TS optimization',
+        settings: defaultSettings({ jobType: 'Opt=TS', forceConstants: 'CalcFC' }),
+      },
+    });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('"TS optimization"');
+  });
+});
+
+describe('issue #16 — project validation', () => {
+  it('accepts and round-trips the convergence choice', () => {
+    const result = validateProject(baseProject([
+      calcNode('opt-1', 'Reactant optimization', {
+        jobType: 'Opt', optConvergence: 'Tight', checkpoint: 'opt.chk',
+      }),
+    ]));
+    expect(result.ok).toBe(true);
+    expect(result.errors).toEqual([]);
+    expect(result.project.nodes[0].settings.optConvergence).toBe('Tight');
+
+    const saved = stringifyProject(result.project);
+    expect(saved.ok).toBe(true);
+    expect(saved.text).toContain('"optConvergence": "Tight"');
+    expect(stringifyProject(parseProjectText(saved.text).project).text).toBe(saved.text);
+  });
+
+  it('rejects an unknown convergence value at its field path', () => {
+    const result = validateProject(baseProject([
+      calcNode('opt-1', 'Reactant optimization', { jobType: 'Opt', optConvergence: 'Loose' }),
+    ]));
+    expect(result.ok).toBe(false);
+    expect(result.errors.map((error) => error.path)).toContain('nodes[0].settings.optConvergence');
+    expect(result.errors[0].message).toContain('Tight, VeryTight');
+  });
+
+  it('warns when a Freq node reads a default-convergence optimization', () => {
+    const result = validateProject(baseProject([
+      calcNode('opt-1', 'Reactant optimization', { jobType: 'Opt', checkpoint: 'opt.chk' }),
+      calcNode('freq-1', 'Reactant frequency', { jobType: 'Freq', checkpoint: 'freq.chk' }, {
+        checkpointFrom: 'opt-1',
+      }),
+    ], [checkpointEdge('opt-1', 'freq-1')]));
+
+    expect(result.ok).toBe(true);
+    expect(result.errors).toEqual([]);
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0].path).toBe('nodes[1].settings.jobType');
+    expect(result.warnings[0].message).toContain('"Reactant optimization"');
+    expect(result.warnings[0].message).toMatch(/default convergence/);
+  });
+
+  it('does not warn when the same hand-off comes from a Tight optimization', () => {
+    const result = validateProject(baseProject([
+      calcNode('opt-1', 'Reactant optimization', {
+        jobType: 'Opt', optConvergence: 'Tight', checkpoint: 'opt.chk',
+      }),
+      calcNode('freq-1', 'Reactant frequency', { jobType: 'Freq', checkpoint: 'freq.chk' }, {
+        checkpointFrom: 'opt-1',
+      }),
+    ], [checkpointEdge('opt-1', 'freq-1')]));
+
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('warns at the grid field when a DFT Tight optimization overrides UltraFine', () => {
+    const result = validateProject(baseProject([
+      calcNode('opt-1', 'Reactant optimization', {
+        jobType: 'Opt', optConvergence: 'Tight', grid: 'Fine', checkpoint: 'opt.chk',
+      }),
+    ]));
+
+    expect(result.ok).toBe(true);
+    expect(result.errors).toEqual([]);
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0].path).toBe('nodes[0].settings.grid');
+    expect(result.warnings[0].message).toContain('Integral=Fine');
+  });
+
+  it('does not warn about the grid when the default UltraFine is in force', () => {
+    const result = validateProject(baseProject([
+      calcNode('opt-1', 'Reactant optimization', {
+        jobType: 'Opt', optConvergence: 'Tight', checkpoint: 'opt.chk',
+      }),
+    ]));
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toEqual([]);
+    expect(routeFor(result.project.nodes[0].settings))
+      .toBe('#p B3LYP/def2-SVP Opt=Tight EmpiricalDispersion=GD3BJ Integral=UltraFine');
+  });
+});
+
+describe('issue #16 — inspector wiring', () => {
+  const source = readFileSync(new URL('../src/renderer/app.js', import.meta.url), 'utf8');
+
+  it('renders the shared convergence options for optimization jobs', () => {
+    expect(source).toContain('OPT_CONVERGENCE_OPTIONS');
+    expect(source).toMatch(/selectField\(\s*'Optimization convergence',\s*'optConvergence'/);
+    expect(source).toMatch(/isOptJob\(s\.jobType\)/);
+    expect(source).toMatch(/optConvergenceIssues\(node\)/);
+  });
+
+  it('previews the derived grid instead of re-reading settings.grid', () => {
+    expect(source).toContain('gridFor(settings)');
+    expect(source).not.toMatch(/if \(settings\.grid\) tokens\.push\(`Integral=/);
+  });
+
+  it('seeds the TS block that feeds a frequency job with Tight convergence', () => {
+    const block = source.match(/calcNode\('ts-opt'[\s\S]*?\}\),/);
+    expect(block).not.toBeNull();
+    expect(block[0]).toContain("jobType: 'Opt=TS'");
+    expect(block[0]).toContain("optConvergence: 'Tight'");
   });
 });

@@ -1,0 +1,219 @@
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import os from 'node:os';
+import fsp from 'node:fs/promises';
+import fs from 'node:fs';
+import { RunManager } from './runner/runManager.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT = path.resolve(__dirname, '..');
+const isDev = process.argv.includes('--dev');
+const DEV_URL = 'http://127.0.0.1:5173';
+
+let mainWindow = null;
+let runManager = null;
+
+function emitRunEvent(event) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('gaussian:event', event);
+  }
+}
+
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1500,
+    height: 960,
+    minWidth: 1100,
+    minHeight: 700,
+    show: false,
+    backgroundColor: '#07090d',
+    title: 'Gaussian Node Studio',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+
+  mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  if (isDev) {
+    mainWindow.loadURL(DEV_URL);
+  } else {
+    mainWindow.loadFile(path.join(ROOT, 'dist', 'index.html'));
+  }
+
+  mainWindow.on('closed', () => { mainWindow = null; });
+}
+
+function safeJson(value) {
+  return JSON.stringify(value, null, 2);
+}
+
+function assertProjectShape(project) {
+  if (!project || typeof project !== 'object' || Array.isArray(project)) {
+    throw new Error('Project file must contain a JSON object.');
+  }
+  if (!Array.isArray(project.nodes) || !Array.isArray(project.edges)) {
+    throw new Error('Project file must contain nodes and edges arrays.');
+  }
+  if (project.nodes.length > 2000 || project.edges.length > 4000) {
+    throw new Error('Project is too large for this version.');
+  }
+  return project;
+}
+
+async function chooseExecutable() {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Locate the licensed Gaussian executable',
+    defaultPath: process.platform === 'win32' ? 'C:\\G16W\\g16.exe' : '/usr/local/g16/g16',
+    properties: ['openFile'],
+    filters: process.platform === 'win32'
+      ? [{ name: 'Gaussian for Windows', extensions: ['exe'] }, { name: 'All files', extensions: ['*'] }]
+      : [{ name: 'All files', extensions: ['*'] }],
+  });
+  return result.canceled ? null : result.filePaths[0];
+}
+
+async function preflight(config = {}) {
+  const checks = [];
+  const dryRun = Boolean(config.dryRun);
+  const executable = String(config.executable || '').trim();
+  const scratchDir = String(config.scratchDir || '').trim();
+  const add = (id, label, ok, detail = '') => checks.push({ id, label, ok, detail });
+
+  add('platform', 'Operating system', ['win32', 'linux', 'darwin'].includes(process.platform),
+    `${process.platform} ${os.release()}`);
+  add('architecture', 'Architecture', ['x64', 'arm64'].includes(process.arch), process.arch);
+
+  if (dryRun) {
+    add('dry-run', 'Dry-run fixture', true, 'No Gaussian process will be started.');
+  } else {
+    add('executable', 'Gaussian executable configured', Boolean(executable), executable || 'Not configured');
+    if (executable) {
+      try {
+        const stat = await fsp.stat(executable);
+        add('executable-exists', 'Executable exists', stat.isFile(), executable);
+        if (process.platform === 'win32') {
+          add('executable-name', 'Windows console executable', /^g16\.exe$/i.test(path.basename(executable)),
+            `Found ${path.basename(executable)}; g16w.exe is the GUI, not the runner.`);
+        }
+        const exeDir = path.dirname(executable);
+        add('gauss-exedir', 'Gaussian executable directory readable', fs.existsSync(exeDir), exeDir);
+        const l1 = path.join(exeDir, process.platform === 'win32' ? 'l1.exe' : 'l1.exe');
+        add('link1-present', 'Gaussian Link 1 present', fs.existsSync(l1), l1);
+      } catch (error) {
+        add('executable-exists', 'Executable exists', false, error.message);
+      }
+    }
+  }
+
+  const runsRoot = path.join(app.getPath('userData'), 'runs');
+  try {
+    await fsp.mkdir(runsRoot, { recursive: true });
+    await fsp.access(runsRoot, fs.constants.W_OK);
+    add('run-root', 'Run directory writable', true, runsRoot);
+  } catch (error) {
+    add('run-root', 'Run directory writable', false, error.message);
+  }
+
+  if (scratchDir) {
+    try {
+      await fsp.mkdir(scratchDir, { recursive: true });
+      await fsp.access(scratchDir, fs.constants.W_OK);
+      add('scratch', 'Scratch directory writable', true, scratchDir);
+    } catch (error) {
+      add('scratch', 'Scratch directory writable', false, error.message);
+    }
+  } else {
+    add('scratch', 'Scratch directory', true, 'Defaults to a per-run scratch folder.');
+  }
+
+  const cores = os.cpus().length;
+  const memoryGb = os.totalmem() / (1024 ** 3);
+  add('resources', 'Host resources detected', cores > 0,
+    `${cores} logical cores · ${memoryGb.toFixed(1)} GB RAM`);
+
+  return {
+    ok: checks.every((check) => check.ok),
+    dryRun,
+    checks,
+    host: {
+      platform: process.platform,
+      arch: process.arch,
+      release: os.release(),
+      cores,
+      memoryGb: Number(memoryGb.toFixed(1)),
+      userData: app.getPath('userData'),
+    },
+  };
+}
+
+async function openProject() {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Open Gaussian Studio project',
+    properties: ['openFile'],
+    filters: [{ name: 'Gaussian Studio project', extensions: ['json', 'ghproject'] }],
+  });
+  if (result.canceled) return { canceled: true };
+  const filePath = result.filePaths[0];
+  const text = await fsp.readFile(filePath, 'utf8');
+  const project = assertProjectShape(JSON.parse(text));
+  return { canceled: false, path: filePath, project };
+}
+
+async function saveProject(project) {
+  assertProjectShape(project);
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: 'Save Gaussian Studio project',
+    defaultPath: path.join(app.getPath('documents'), 'untitled.ghproject.json'),
+    filters: [{ name: 'Gaussian Studio project', extensions: ['json'] }],
+  });
+  if (result.canceled || !result.filePath) return { canceled: true };
+  await fsp.writeFile(result.filePath, `${safeJson(project)}\n`, 'utf8');
+  return { canceled: false, path: result.filePath };
+}
+
+app.whenReady().then(async () => {
+  runManager = new RunManager({
+    runsRoot: path.join(app.getPath('userData'), 'runs'),
+    emit: emitRunEvent,
+  });
+
+  ipcMain.handle('app:info', () => ({
+    version: app.getVersion(),
+    electron: process.versions.electron,
+    node: process.versions.node,
+    chrome: process.versions.chrome,
+    platform: process.platform,
+    arch: process.arch,
+    userData: app.getPath('userData'),
+  }));
+  ipcMain.handle('project:open', openProject);
+  ipcMain.handle('project:save', (_event, project) => saveProject(project));
+  ipcMain.handle('gaussian:pick-executable', chooseExecutable);
+  ipcMain.handle('gaussian:preflight', (_event, config) => preflight(config));
+  ipcMain.handle('gaussian:run', (_event, payload) => runManager.start(payload));
+  ipcMain.handle('gaussian:cancel', (_event, runId) => runManager.cancel(runId));
+  ipcMain.handle('runs:list', () => runManager.list());
+
+  createWindow();
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('before-quit', () => {
+  runManager?.cancelAll();
+});

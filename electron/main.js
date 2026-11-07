@@ -6,6 +6,7 @@ import fsp from 'node:fs/promises';
 import fs from 'node:fs';
 import { RunManager } from './runner/runManager.js';
 import { QueueManager } from './runner/queue.js';
+import { writeClusterExport, importClusterExport } from './runner/clusterFiles.js';
 import { parseProjectText, stringifyProject, summarizeErrors } from '../src/shared/projectSchema.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -245,6 +246,42 @@ async function exportGaussianInput({ filename, text } = {}) {
   return { canceled: false, path: result.filePath };
 }
 
+async function exportClusterScripts({ format, files } = {}) {
+  const scheduler = String(format || '');
+  if (!['slurm', 'pbs'].includes(scheduler)) {
+    return { canceled: false, error: { message: 'Choose either the SLURM or PBS script set.' } };
+  }
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: `Choose a folder for the ${scheduler.toUpperCase()} script set`,
+    defaultPath: app.getPath('documents'),
+    properties: ['openDirectory', 'createDirectory'],
+    buttonLabel: 'Export here',
+  });
+  if (result.canceled || !result.filePaths[0]) return { canceled: true };
+  try {
+    return await writeClusterExport({ parentDir: result.filePaths[0], format: scheduler, files });
+  } catch (error) {
+    return { canceled: false, error: { message: error.message } };
+  }
+}
+
+async function importClusterResults() {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Choose the exported cluster folder that contains the returned outputs',
+    properties: ['openDirectory'],
+    buttonLabel: 'Import results',
+  });
+  if (result.canceled || !result.filePaths[0]) return { canceled: true };
+  try {
+    return await importClusterExport({
+      exportDir: result.filePaths[0],
+      runsRoot: path.join(app.getPath('userData'), 'runs'),
+    });
+  } catch (error) {
+    return { canceled: false, error: { message: error.message } };
+  }
+}
+
 app.whenReady().then(async () => {
   runManager = new RunManager({
     runsRoot: path.join(app.getPath('userData'), 'runs'),
@@ -269,6 +306,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('project:open', openProject);
   ipcMain.handle('project:save', (_event, project, filePath) => saveProject(project, filePath));
   ipcMain.handle('input:export', (_event, payload) => exportGaussianInput(payload));
+  ipcMain.handle('cluster:export', (_event, payload) => exportClusterScripts(payload));
+  ipcMain.handle('cluster:import', () => importClusterResults());
   ipcMain.on('window:dirty', (_event, dirty) => { windowDirty = Boolean(dirty); });
   ipcMain.handle('gaussian:pick-executable', chooseExecutable);
   ipcMain.handle('gaussian:preflight', (_event, config) => preflight(config));

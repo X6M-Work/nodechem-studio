@@ -5,6 +5,8 @@
  * runner contract.
  */
 
+import { terminationCodeOf } from './engines/canonical.js';
+
 const NUMBER = String.raw`[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[EeDd][-+]?\d+)?`;
 
 function toNumber(value) {
@@ -152,6 +154,9 @@ export function parseGaussianOutput(text, { truncated = false, byteRange = null 
  * Evaluate the first-slice gates. A missing or unjudgeable value is `unknown`,
  * never `pass`. `expectedImaginary` is null when the route has no frequency
  * interpretation.
+ *
+ * Termination is read through the canonical `terminationCodeOf()` so the same
+ * gates work for any engine.
  */
 export function evaluateGates(parsed, {
   expectedImaginary = null,
@@ -174,9 +179,10 @@ export function evaluateGates(parsed, {
   add('Output complete', true, complete ? 'pass' : 'unknown',
     complete ? (bytes && Number.isFinite(bytes.bytesRead) ? byteDetail : 'full output parsed') : byteDetail);
 
+  const termination = terminationCodeOf(parsed);
   add('Normal termination', true,
-    parsed.termination === 'Normal termination of Gaussian' ? 'pass'
-      : parsed.termination === 'Error termination' ? 'fail' : 'unknown',
+    termination === 'normal' ? 'pass'
+      : termination === 'error' ? 'fail' : 'unknown',
     parsed.termination);
 
   add('SCF record', true,

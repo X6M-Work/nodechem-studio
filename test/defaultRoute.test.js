@@ -178,6 +178,7 @@ describe('issue #17 — existing project files', () => {
     expect(opened.ok).toBe(true);
     expect(opened.migrated).toBe(false);
     expect(opened.project.defaults).toEqual({
+      engine: 'gaussian',
       method: 'B3LYP',
       basis: '6-31G(d)',
       memory: '4',

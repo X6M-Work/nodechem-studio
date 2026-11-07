@@ -6,11 +6,11 @@
    ============================================================ */
 
 import {
-  buildGaussianInput,
   DEMO_WATER,
-  outputNameFor,
 } from '../shared/gaussianInput.js';
 import { defaultGates, defaultSettings } from '../shared/projectSchema.js';
+import { ENGINES, engineOrDefault } from '../shared/engines/index.js';
+import { XTB_METHODS, XTB_OPT_LEVELS, XTB_SOLVATION_MODELS } from '../shared/engines/xtb.js';
 import {
   MODERN_ROUTE_PRESET,
   ROUTE_PRESETS,
@@ -94,6 +94,7 @@ const project = {
     geometry: { source: 'demo', file: '', format: '' },
   },
   defaults: {
+    engine: 'gaussian',
     method: MODERN_ROUTE_PRESET.method,
     basis: MODERN_ROUTE_PRESET.basis,
     memory: '4',
@@ -256,7 +257,14 @@ function gateChips(node) {
 }
 
 function nodeDetail(node) {
-  if (node.type === 'calc') return routeShort(node.settings);
+  if (node.type === 'calc') {
+    // The card must describe the engine the project actually runs.
+    if (engineOrDefault(state.project?.defaults?.engine).id === 'xtb') {
+      const label = (XTB_METHODS.find((item) => item.id === (node.settings.xtbMethod || 'gfn2')) || {}).label || 'xTB';
+      return `${label} ${node.settings.jobType}`;
+    }
+    return routeShort(node.settings);
+  }
   if (node.type === 'condition') return node.condition.expression.replace(/\s*\n\s*/g, ' · ');
   if (node.type === 'loop') return `max ${node.loop.maxAttempts} attempts · ${nodeById(node.loop.target)?.title || 'no target'}`;
   if (node.type === 'merge') return node.merge.policy === 'any' ? 'wait for any input' : 'wait for all inputs';
@@ -710,8 +718,12 @@ function renderProjectInspector() {
     <section class="section">
       <div class="section-label">Project defaults</div>
       <div class="card">
-        <div class="kv"><span>Method</span><code>${esc(state.project.defaults.method)}</code></div>
-        <div class="kv"><span>Basis</span><code>${esc(state.project.defaults.basis)}</code></div>
+        <div class="kv"><span>Engine</span><code>${esc(engineOrDefault(state.project.defaults.engine).label)}</code></div>
+        ${engineOrDefault(state.project.defaults.engine).id === 'xtb'
+    ? `<div class="kv"><span>Hamiltonian</span><code>${esc((XTB_METHODS.find((item) => item.id === (state.project.defaults.xtbMethod || 'gfn2')) || {}).label || 'GFN2-xTB')}</code></div>
+        <div class="kv"><span>Optimisation</span><code>${esc(state.project.defaults.xtbOptLevel || 'normal')}</code></div>`
+    : `<div class="kv"><span>Method</span><code>${esc(state.project.defaults.method)}</code></div>
+        <div class="kv"><span>Basis</span><code>${esc(state.project.defaults.basis)}</code></div>`}
         <div class="kv"><span>Resources</span><code>${esc(state.project.defaults.memory)} ${esc(state.project.defaults.memoryUnit)} · ${esc(state.project.defaults.nproc)} cores</code></div>
         <button type="button" class="btn" data-open-modal="molecule">Edit defaults</button>
       </div>
@@ -743,9 +755,22 @@ function calcInspector(node) {
   const outs = outgoing(node.id);
   const status = statusFor(node);
   const checkpointSource = node.checkpointFrom ? nodeById(node.checkpointFrom) : null;
-  const routeLines = [`%Chk=${esc(s.checkpoint || chkName(node.id))}`];
-  if (checkpointSource) routeLines.push(`%OldChk=${esc(chkName(checkpointSource.id))}`);
-  routeLines.push(routeFull(s));
+  const engine = engineOrDefault(state.project?.defaults?.engine);
+  const isXtb = engine.id === 'xtb';
+  const routeLines = [];
+  if (isXtb) {
+    // Show the real invocation, or say plainly that xTB cannot run this block.
+    try {
+      const built = buildRunInput(node);
+      routeLines.push(`xtb ${esc(built.argv.join(' '))}`);
+    } catch (error) {
+      routeLines.push(`xTB cannot run this block: ${esc(error.message)}`);
+    }
+  } else {
+    routeLines.push(`%Chk=${esc(s.checkpoint || chkName(node.id))}`);
+    if (checkpointSource) routeLines.push(`%OldChk=${esc(chkName(checkpointSource.id))}`);
+    routeLines.push(routeFull(s));
+  }
 
   let callout = '';
   if (node.state === 'blocked') {
@@ -831,25 +856,32 @@ function calcInspector(node) {
     inputField('Route keywords', 'customKeywords', s.customKeywords, { full: true }),
   ].join(''));
 
+  const xtbGroup = group('xTB', `${(XTB_METHODS.find((item) => item.id === (s.xtbMethod || 'gfn2')) || {}).label || 'GFN2-xTB'} · ${s.xtbOptLevel || 'normal'}`, true, [
+    selectField('Hamiltonian', 'xtbMethod', XTB_METHODS.map((item) => [item.id, item.label]), s.xtbMethod || 'gfn2'),
+    selectField('Optimisation level', 'xtbOptLevel', XTB_OPT_LEVELS.map((level) => [level, level]), s.xtbOptLevel || 'normal'),
+    '<div class="full"><div class="callout">This project runs on xTB. Gaussian route fields (method, basis, dispersion, SCF, grid, population) are ignored. GFN2-xTB includes D4 dispersion; there is no transition-state or IRC support.</div></div>',
+  ].join(''));
+  const headRoute = isXtb ? `${(XTB_METHODS.find((item) => item.id === (s.xtbMethod || 'gfn2')) || {}).label || 'xTB'} · ${s.jobType}` : routeShort(s);
+
   const primary = node.state === 'passed'
     ? '<button type="button" class="btn primary" data-action="view-output">View output</button>'
     : node.state === 'ready'
       ? '<button type="button" class="btn primary" data-action="export">Export input</button>'
       : '<button type="button" class="btn primary" data-action="import-log">Import log</button>';
 
-  return `${inspectorHead(`${kindLabel(node)} · ${node.kind}`, node.title, `${routeShort(s)} · ${status.label}`)}
+  return `${inspectorHead(`${kindLabel(node)} · ${node.kind}`, node.title, `${headRoute} · ${status.label}`)}
   <div class="inspector-scroll">
     <div class="inspector-status-row">${statusPill(node.state)}<span class="inspector-note">${ins.length} input${ins.length === 1 ? '' : 's'} · ${outs.length} output${outs.length === 1 ? '' : 's'}</span></div>
     ${callout}
     <div class="code-block" style="margin-bottom:10px">${routeLines.map((line) => `<div>${line}</div>`).join('')}</div>
     ${jobGroup}
-    ${methodGroup}
-    ${solvationGroup}
+    ${isXtb ? xtbGroup : methodGroup}
+    ${isXtb ? '' : solvationGroup}
     ${moleculeGroup}
     ${gatesGroup}
     ${dependencyGroup}
     ${outputGroup}
-    ${extraGroup}
+    ${isXtb ? '' : extraGroup}
     <div class="inspector-actions-row">
       <button type="button" class="btn small" data-action="duplicate-node">Duplicate</button>
       <button type="button" class="btn small danger" data-action="delete-node">Delete</button>
@@ -1537,6 +1569,9 @@ function openMoleculeDrawer(tab = 'structure') {
         ? state.project.molecule.coords.map((atom) => ({ ...atom }))
         : [],
       geometry: { source: 'demo', file: '', format: '', ...(state.project.molecule.geometry || {}) },
+      engine: engineOrDefault(state.project.defaults.engine).id,
+      xtbMethod: state.project.defaults.xtbMethod || 'gfn2',
+      xtbOptLevel: state.project.defaults.xtbOptLevel || 'normal',
       method: state.project.defaults.method,
       basis: state.project.defaults.basis,
       memory: state.project.defaults.memory,
@@ -1619,20 +1654,33 @@ function renderDrawer() {
       </div>
       <div class="callout">Fragment order maps to <code>(Fragment=N)</code> in the exported route. Charge and multiplicity parity is checked by the real app.</div>`;
   } else {
+    const engineId = engineOrDefault(draft.engine).id;
+    const isXtb = engineId === 'xtb';
     const defaultDispersion = defaultDispersionFor(draft.method);
-    const defaultRoute = `#p ${draft.method}/${draft.basis} Opt${defaultDispersion ? ` EmpiricalDispersion=${defaultDispersion}` : ''}`;
+    const gaussianRoute = `#p ${draft.method}/${draft.basis} Opt${defaultDispersion ? ` EmpiricalDispersion=${defaultDispersion}` : ''}`;
+    const xtbMethod = draft.xtbMethod || 'gfn2';
+    const gfnFlag = xtbMethod === 'gfnff' ? '--gfnff' : `--gfn ${xtbMethod.replace('gfn', '')}`;
+    const xtbRoute = `xtb task.xyz ${gfnFlag} --opt ${draft.xtbOptLevel || 'normal'}`;
     body = `
       <div class="form-grid">
-        ${drawerSelect('Default method', 'method', METHODS, draft.method)}
-        ${drawerSelect('Default basis', 'basis', BASIS_SETS, draft.basis)}
+        ${drawerSelect('Engine', 'engine', Object.values(ENGINES).map((item) => [item.id, item.label]), engineId)}
+        ${isXtb
+    ? drawerSelect('xTB method', 'xtbMethod', XTB_METHODS.map((item) => [item.id, item.label]), draft.xtbMethod || 'gfn2')
+    : drawerSelect('Default method', 'method', METHODS, draft.method)}
+        ${isXtb
+    ? drawerSelect('Optimisation level', 'xtbOptLevel', XTB_OPT_LEVELS.map((level) => [level, level]), draft.xtbOptLevel || 'normal')
+    : drawerSelect('Default basis', 'basis', BASIS_SETS, draft.basis)}
         ${drawerField('Memory', 'memory', draft.memory)}
         ${drawerSelect('Memory unit', 'memoryUnit', MEMORY_UNITS, draft.memoryUnit)}
         ${drawerField('Cores (nproc)', 'nproc', draft.nproc)}
       </div>
       <div class="form-section" style="margin-top:14px">
-        <div class="section-label">Default route</div>
-        <div class="code-block">${esc(defaultRoute)}</div>
+        <div class="section-label">Default route · ${esc(engineOrDefault(engineId).label)}</div>
+        <div class="code-block">${esc(isXtb ? xtbRoute : gaussianRoute)}</div>
       </div>
+      <div class="callout">Engine is a project-level choice: every calculation block is built for it. ${isXtb
+    ? 'xTB has no basis set, no transition-state search and no IRC — blocks needing those are refused at input build.'
+    : 'Gaussian blocks keep the route, dispersion and basis configured per block.'}</div>
       <div class="callout">Defaults apply to <strong>new</strong> blocks. Existing blocks keep their own parameter snapshot, exactly like a workflow task.</div>`;
   }
 
@@ -1673,12 +1721,24 @@ function saveMolecule() {
     z: atom.z,
   }));
   state.project.molecule.geometry = { ...draft.geometry };
+  state.project.defaults.engine = engineOrDefault(draft.engine).id;
+  state.project.defaults.xtbMethod = draft.xtbMethod || 'gfn2';
+  state.project.defaults.xtbOptLevel = draft.xtbOptLevel || 'normal';
   state.project.defaults.method = draft.method;
   state.project.defaults.basis = draft.basis;
   state.project.defaults.memory = draft.memory;
   state.project.defaults.memoryUnit = draft.memoryUnit;
   state.project.defaults.nproc = draft.nproc;
+  // An xTB project cannot carry a Gaussian-only implicit-solvation model.
+  if (state.project.defaults.engine === 'xtb') {
+    for (const node of state.project.nodes) {
+      if (node?.settings && node.settings.solvation && !XTB_SOLVATION_MODELS.includes(String(node.settings.solvationModel || '').toUpperCase())) {
+        node.settings.solvationModel = 'ALPB';
+      }
+    }
+  }
   closeDrawer();
+  renderGraph();
   renderInspector();
   toast('Project molecule and defaults updated.');
 }
@@ -1808,24 +1868,35 @@ function oldCheckpointFor(node) {
   return source ? checkpointNameFor(source) : '';
 }
 
-function buildInputForNode(node) {
+function buildRunInput(node) {
+  const engine = engineOrDefault(state.project?.defaults?.engine);
   const settings = {
     ...node.settings,
     charge: state.project.molecule.charge,
     multiplicity: state.project.molecule.multiplicity,
   };
   const imported = Array.isArray(state.project.molecule.coords) && state.project.molecule.coords.length > 0;
-  return buildGaussianInput({
+  const molecule = {
+    charge: state.project.molecule.charge,
+    multiplicity: state.project.molecule.multiplicity,
+    coords: imported ? state.project.molecule.coords : DEMO_WATER,
+  };
+  const base = safeBase(node.id);
+  if (engine.id === 'xtb') {
+    return engine.buildInput({ title: node.title, settings, molecule, inputName: `${base}.xyz` });
+  }
+  return engine.buildInput({
     title: node.title,
     settings,
-    molecule: {
-      charge: state.project.molecule.charge,
-      multiplicity: state.project.molecule.multiplicity,
-      coords: imported ? state.project.molecule.coords : DEMO_WATER,
-    },
-    inputName: `${safeBase(node.id)}.gjf`,
+    molecule,
+    inputName: `${base}.gjf`,
     oldCheckpoint: oldCheckpointFor(node),
   });
+}
+
+/** The engine's own input text, for the inspector preview. */
+function buildInputForNode(node) {
+  return buildRunInput(node).inputText;
 }
 
 function openRunConsole() {
@@ -1900,13 +1971,14 @@ function saveRunConfig() {
 }
 
 async function pickGaussian() {
-  if (!desktop) { toast('Open the Electron app to choose a Gaussian executable.'); return; }
+  if (!desktop) { toast('Open the Electron app to choose an executable.'); return; }
   try {
-    const selected = await desktop.pickExecutable();
+    const engine = engineOrDefault(state.project?.defaults?.engine);
+    const selected = await desktop.pickExecutable({ engine: engine.id });
     if (selected) {
       $('#run-exe').value = selected;
       saveRunConfig();
-      toast('Gaussian executable selected.');
+      toast(`${engine.label} executable selected.`);
     }
   } catch (error) {
     toast(`Could not choose executable: ${error.message}`);
@@ -1920,6 +1992,7 @@ async function preflightRun({ quiet = false } = {}) {
   }
   saveRunConfig();
   const config = {
+    engine: engineOrDefault(state.project?.defaults?.engine).id,
     executable: $('#run-exe').value.trim(),
     scratchDir: $('#run-scratch').value.trim(),
     dryRun: $('#run-dry').checked,
@@ -1952,9 +2025,9 @@ async function startSelectedRun() {
     return;
   }
 
-  let inputText;
+  let built;
   try {
-    inputText = buildInputForNode(node);
+    built = buildRunInput(node);
   } catch (error) {
     appendRunOutput(`Input builder error: ${error.message}\n`);
     toast(`Cannot build input: ${error.message}`);
@@ -1976,9 +2049,11 @@ async function startSelectedRun() {
   try {
     const response = await desktop.runTask({
       title: node.title,
-      inputText,
-      inputName: `${safeBase(node.id)}.gjf`,
-      outputName: outputNameFor(`${safeBase(node.id)}.gjf`),
+      engine: built.engine,
+      argv: built.argv,
+      inputText: built.inputText,
+      inputName: built.inputName,
+      outputName: built.outputName,
       executable: $('#run-exe').value.trim(),
       scratchDir: $('#run-scratch').value.trim(),
       dryRun,
@@ -2055,16 +2130,18 @@ function buildWorkflowTasks() {
         merge: node.type === 'merge' ? { policy: node.merge?.policy || 'all' } : null,
       };
     }
-    const inputName = `${safeBase(node.id)}.gjf`;
+    const built = buildRunInput(node);
     return {
       nodeId: node.id,
       type: 'calc',
       title: node.title,
       kind: node.kind || 'Calc',
       executable: true,
-      inputName,
-      outputName: outputNameFor(inputName),
-      inputText: buildInputForNode(node),
+      engine: built.engine,
+      argv: built.argv,
+      inputName: built.inputName,
+      outputName: built.outputName,
+      inputText: built.inputText,
       gates: gatesForNode(node),
       checkpointName: checkpointNameFor(node),
       checkpointFrom: checkpointSourceFor(node),
@@ -2570,6 +2647,8 @@ function onDocumentChange(event) {
   if (target.dataset.drawerField && state.drawer) {
     const key = target.dataset.drawerField;
     state.drawer.draft[key] = target.value;
+    // Switching engine swaps the parameter set, so re-render the drawer.
+    if (key === 'engine') renderDrawer();
   }
   if (target.dataset.drawerFragment !== undefined && state.drawer) {
     state.drawer.draft.fragments[Number(target.dataset.drawerFragment)] = target.value;

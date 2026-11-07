@@ -206,6 +206,7 @@ describe('project schema v1 — legacy migration', () => {
     const result = validateProject(raw);
     expect(result.ok).toBe(true);
     expect(result.project.defaults).toEqual({
+      engine: 'gaussian',
       method: 'B3LYP', basis: 'def2-SVP', memory: '4', memoryUnit: 'GB', nproc: 4,
     });
     expect(result.project.molecule.fragments).toEqual([]);

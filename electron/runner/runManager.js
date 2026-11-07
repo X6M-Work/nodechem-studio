@@ -2,12 +2,11 @@ import fsp from 'node:fs/promises';
 import fs from 'node:fs';
 import path from 'node:path';
 import { GaussianRunner } from './gaussianRunner.js';
+import { XtbRunner } from './xtbRunner.js';
 import { stageCheckpoint } from './checkpoint.js';
-import { parseGaussianOutput, evaluateGates, outputEvidence } from '../../src/shared/gaussianOutput.js';
-import { makeFixtureOutput } from '../../src/shared/fixtureOutput.js';
+import { evaluateGates, outputEvidence } from '../../src/shared/gaussianOutput.js';
+import { engineFor, DEFAULT_ENGINE_ID } from '../../src/shared/engines/index.js';
 
-const SAFE_INPUT = /^[A-Za-z0-9._-]+\.(gjf|com)$/i;
-const SAFE_OUTPUT = /^[A-Za-z0-9._-]+\.(out|log)$/i;
 const MAX_INPUT_BYTES = 2 * 1024 * 1024;
 
 function runIdFor(date = new Date()) {
@@ -24,9 +23,15 @@ export class RunManager {
   constructor({ runsRoot, emit, createRunner }) {
     this.runsRoot = runsRoot;
     this.emitExternal = emit;
-    this.createRunner = createRunner || (() => new GaussianRunner());
+    this.createRunner = createRunner || null;
     this.active = new Map();
     this.listeners = new Set();
+  }
+
+  /** Build the process runner for an engine. Tests inject a fake one. */
+  runnerFor(engine) {
+    if (this.createRunner) return this.createRunner(engine);
+    return engine.id === 'xtb' ? new XtbRunner() : new GaussianRunner();
   }
 
   /** Internal subscribers (the queue) receive the same events as the renderer. */
@@ -47,17 +52,22 @@ export class RunManager {
   }
 
   async start(payload = {}) {
+    const engine = engineFor(payload.engine ?? DEFAULT_ENGINE_ID);
     const inputText = String(payload.inputText || '');
-    if (!inputText.trim()) throw new Error('The run has no Gaussian input text.');
-    if (Buffer.byteLength(inputText, 'utf8') > MAX_INPUT_BYTES) throw new Error('Gaussian input is larger than 2 MiB.');
-    if (!SAFE_INPUT.test(payload.inputName || '')) throw new Error('Input name must be a safe .gjf or .com basename.');
-    if (!SAFE_OUTPUT.test(payload.outputName || '')) throw new Error('Output name must be a safe .out or .log basename.');
+    if (!inputText.trim()) throw new Error(`The run has no ${engine.label} input text.`);
+    if (Buffer.byteLength(inputText, 'utf8') > MAX_INPUT_BYTES) throw new Error(`${engine.label} input is larger than 2 MiB.`);
+    if (!engine.acceptsInputName(payload.inputName || '')) {
+      throw new Error(`Input name must be a safe ${engine.capabilities.inputExtension} basename for ${engine.label}.`);
+    }
+    if (!engine.acceptsOutputName(payload.outputName || '')) {
+      throw new Error(`Output name must be a safe ${engine.capabilities.outputExtension} basename.`);
+    }
 
     const dryRun = Boolean(payload.dryRun);
     if (!dryRun) {
-      if (!payload.executable) throw new Error('Choose the licensed Gaussian executable before running without dry-run.');
+      if (!payload.executable) throw new Error(`Choose the ${engine.label} executable before running without dry-run.`);
       const stat = await fsp.stat(payload.executable).catch(() => null);
-      if (!stat?.isFile()) throw new Error(`Gaussian executable not found: ${payload.executable}`);
+      if (!stat?.isFile()) throw new Error(`${engine.label} executable not found: ${payload.executable}`);
     }
 
     const runId = runIdFor();
@@ -86,8 +96,10 @@ export class RunManager {
     const record = {
       id: runId,
       status: stageError ? 'failed' : 'running',
+      engine: engine.id,
+      argv: Array.isArray(payload.argv) ? payload.argv.map(String) : null,
       dryRun,
-      title: String(payload.title || 'Gaussian task'),
+      title: String(payload.title || `${engine.label} task`),
       inputName: payload.inputName,
       outputName: payload.outputName,
       outputFile: null,
@@ -116,7 +128,7 @@ export class RunManager {
       throw error;
     }
 
-    const context = { runId, runDir, payload, scratchDir, cancelled: false, timer: null, runner: null, outputMeta: null };
+    const context = { runId, runDir, payload, engine, scratchDir, cancelled: false, timer: null, runner: null, outputMeta: null };
     this.active.set(runId, context);
     this.emit({ type: 'started', runId, runDir, record });
     this.execute(context).catch(async (error) => {
@@ -126,7 +138,7 @@ export class RunManager {
   }
 
   async execute(context) {
-    const { runId, runDir, payload, scratchDir } = context;
+    const { runId, runDir, payload, engine, scratchDir } = context;
     let outputText = '';
     let exitCode = null;
 
@@ -145,7 +157,7 @@ export class RunManager {
         return;
       }
       const expected = payload.gates?.expectedImaginary;
-      outputText = makeFixtureOutput({ imaginary: Number(expected) > 0 ? 1 : 0 });
+      outputText = engine.makeFixture({ imaginary: Number(expected) > 0 ? 1 : 0 });
       await fsp.writeFile(path.join(runDir, payload.outputName), outputText, 'utf8');
       this.emit({ type: 'output', runId, text: outputText });
       const fixtureBytes = Buffer.byteLength(outputText, 'utf8');
@@ -162,17 +174,29 @@ export class RunManager {
       };
       exitCode = 0;
     } else {
-      const runner = this.createRunner();
+      const runner = this.runnerFor(engine);
       context.runner = runner;
-      const result = await runner.run({
-        executable: payload.executable,
-        inputName: payload.inputName,
-        outputName: payload.outputName,
-        cwd: runDir,
-        scratchDir,
-        timeoutMs: Number(payload.timeoutMs) || 0,
-        onOutput: ({ text }) => this.emit({ type: 'output', runId, text }),
-      });
+      const timeoutMs = Number(payload.timeoutMs) || 0;
+      const onOutput = ({ text }) => this.emit({ type: 'output', runId, text });
+      const result = engine.id === 'xtb'
+        ? await runner.run({
+          executable: payload.executable,
+          argv: Array.isArray(payload.argv) && payload.argv.length > 0 ? payload.argv : [payload.inputName],
+          cwd: runDir,
+          outputName: payload.outputName,
+          timeoutMs,
+          xtbPath: payload.xtbPath || null,
+          onOutput,
+        })
+        : await runner.run({
+          executable: payload.executable,
+          inputName: payload.inputName,
+          outputName: payload.outputName,
+          cwd: runDir,
+          scratchDir,
+          timeoutMs,
+          onOutput,
+        });
       outputText = result.outputText;
       exitCode = result.exitCode;
       context.outputMeta = {
@@ -191,12 +215,13 @@ export class RunManager {
         });
         return;
       }
-      if (result.exitCode !== 0 && !/Normal termination|Error termination/i.test(outputText)) {
-        throw new Error(`Gaussian exited with code ${result.exitCode} and produced no termination record.`);
+      const classified = engine.classify(outputText, result.exitCode);
+      if (classified.code === 'none' && Number(result.exitCode) !== 0) {
+        throw new Error(`${engine.label} exited with code ${result.exitCode} and produced no termination record.`);
       }
     }
 
-    const parsed = parseGaussianOutput(outputText, {
+    const parsed = engine.parse(outputText, {
       truncated: Boolean(context.outputMeta?.truncated),
       byteRange: context.outputMeta?.outputBytes || null,
     });

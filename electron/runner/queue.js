@@ -35,7 +35,7 @@ function oneLine(value, max = 200) {
   return String(value ?? '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, max);
 }
 
-const ROUTE_SETTING_KEYS = ['method', 'basis', 'dispersion', 'scf', 'grid', 'solvationModel', 'solvent'];
+const ROUTE_SETTING_KEYS = ['method', 'basis', 'dispersion', 'scf', 'grid', 'optConvergence', 'solvationModel', 'solvent'];
 
 /**
  * Keep only the route fields the provenance manifest needs. The renderer

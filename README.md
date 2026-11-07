@@ -109,6 +109,33 @@ Hessian describes a minimum rather than the saddle. The route is composed in one
 produces exactly one `Opt` keyword; extra route keywords that add another `Opt` are
 rejected rather than emitted twice.
 
+## Optimization convergence
+
+Gaussian's default optimization thresholds are loose enough that a following frequency
+job can be computed on a geometry that is not converged tightly enough, and the G16
+manual notes that `Opt=Tight` "may be necessary to ensure adequate convergence and
+reliability of frequencies computed in a subsequent job step". The inspector's
+**Optimization convergence** select appears for `Opt`, `Opt Freq` and `Opt=TS` blocks
+and is composed into the existing job keyword — there is never a second `Opt=`:
+
+| Choice | `Opt` block | `Opt=TS` block with `CalcFC` |
+| --- | --- | --- |
+| `Default` | `Opt` | `Opt=(TS,CalcFC,NoEigenTest)` |
+| `Tight` | `Opt=Tight` | `Opt=(TS,CalcFC,NoEigenTest,Tight)` |
+| `VeryTight` | `Opt=VeryTight` | `Opt=(TS,CalcFC,NoEigenTest,VeryTight)` |
+
+An `Opt Freq` block composes to `Opt=Tight Freq`, not `Opt=Tight Opt Freq`.
+
+For a DFT method the same G16 guidance adds `Int=UltraFine`, so a DFT optimization at
+Tight or VeryTight convergence defaults to `Integral=UltraFine`. The grid select shows
+that derived default, an explicitly chosen grid wins, and project validation warns when
+an explicit grid overrides it. The grid is derived from the settings at build time, so
+`run.json` records the grid that was actually written.
+
+A `Freq` block whose checkpoint hand-off comes from an optimization left at the default
+convergence gets a validation warning naming the upstream block: the frequencies would
+otherwise be computed on a loosely converged geometry.
+
 ## Requirements
 
 - Node.js 22 or newer and npm 10 or newer.

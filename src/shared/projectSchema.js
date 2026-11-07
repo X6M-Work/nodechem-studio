@@ -21,10 +21,14 @@ import { MODERN_ROUTE_PRESET, defaultDispersionFor } from './routePresets.js';
 import { ENGINE_IDS } from './engines/index.js';
 import { XTB_METHODS, XTB_OPT_LEVELS } from './engines/xtb.js';
 import {
+  DEFAULT_OPT_CONVERGENCE,
   DEFAULT_TS_FORCE_CONSTANTS,
+  OPT_CONVERGENCE_IDS,
   TS_FORCE_CONSTANT_IDS,
   checkTsForceConstants,
+  freqGeometryWarnings,
   hasOptKeyword,
+  optConvergenceWarnings,
 } from './tsForceConstants.js';
 
 const XTB_METHOD_IDS = XTB_METHODS.map((method) => method.id);
@@ -114,7 +118,8 @@ const NODE_TYPE_KEYS = {
 const SETTINGS_KEYS = new Set([
   'jobType', 'method', 'basis', 'memory', 'memoryUnit', 'nproc', 'checkpoint', 'charge',
   'multiplicity', 'dispersion', 'scf', 'grid', 'population', 'verbosity', 'solvation',
-  'solvationModel', 'solvent', 'customKeywords', 'ircDirection', 'forceConstants', 'gates',
+  'solvationModel', 'solvent', 'customKeywords', 'ircDirection', 'optConvergence',
+  'forceConstants', 'gates',
   'xtbMethod', 'xtbOptLevel',
 ]);
 const GATE_KEYS = new Set(['termination', 'scf', 'imaginary', 'minMagnitude', 'thermo', 'finalEnergy']);
@@ -154,6 +159,7 @@ export function defaultSettings(overrides = {}) {
     ircDirection: 'forward',
     xtbMethod: 'gfn2',
     xtbOptLevel: 'normal',
+    optConvergence: DEFAULT_OPT_CONVERGENCE,
     forceConstants: DEFAULT_TS_FORCE_CONSTANTS,
     gates: defaultGates(),
   };
@@ -459,6 +465,7 @@ function normalizeSettings(c, raw, path, legacy) {
     ircDirection: readEnum(c, source.ircDirection, IRC_DIRECTIONS, `${path}.ircDirection`, { legacy, fallback: 'forward' }),
     xtbMethod: readEnum(c, source.xtbMethod, XTB_METHOD_IDS, `${path}.xtbMethod`, { legacy, fallback: 'gfn2' }),
     xtbOptLevel: readEnum(c, source.xtbOptLevel, XTB_OPT_LEVELS, `${path}.xtbOptLevel`, { legacy, fallback: 'normal' }),
+    optConvergence: readEnum(c, source.optConvergence, OPT_CONVERGENCE_IDS, `${path}.optConvergence`, { legacy, fallback: DEFAULT_OPT_CONVERGENCE }),
     forceConstants: readEnum(c, source.forceConstants, TS_FORCE_CONSTANT_IDS, `${path}.forceConstants`, { legacy, fallback: DEFAULT_TS_FORCE_CONSTANTS }),
     gates: normalizeGates(c, source.gates, `${path}.gates`, legacy),
   };
@@ -727,6 +734,9 @@ export function validateProject(raw) {
   // from. ReadFC is only valid when a checkpoint edge points at a job that
   // actually writes force constants; the estimated-Hessian default warns but
   // never blocks.
+  // Issue #16: warn when the integration grid overrides the UltraFine default
+  // for a DFT optimization at tight convergence, and when a frequency job reads
+  // a geometry from an optimization left at Gaussian's default convergence.
   nodes.forEach((node, index) => {
     if (node.type !== 'calc') return;
     const checkpointEdge = edges.find((edge) => edge.to === node.id && edge.type === 'checkpoint');
@@ -734,6 +744,10 @@ export function validateProject(raw) {
     const { errors, warnings } = checkTsForceConstants({ settings: node.settings, upstream });
     errors.forEach((message) => c.error(`nodes[${index}].settings.forceConstants`, message));
     warnings.forEach((message) => c.warn(`nodes[${index}].settings.forceConstants`, message));
+    optConvergenceWarnings(node.settings)
+      .forEach((message) => c.warn(`nodes[${index}].settings.grid`, message));
+    freqGeometryWarnings({ settings: node.settings, upstream })
+      .forEach((message) => c.warn(`nodes[${index}].settings.jobType`, message));
   });
 
   const project = {

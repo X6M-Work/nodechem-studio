@@ -53,6 +53,25 @@ export function dispersionForMethodChange(method, currentDispersion = '') {
   return currentDispersion || DEFAULT_DISPERSION;
 }
 
+/**
+ * Methods whose Gaussian 16 implementation is a density functional. This is an
+ * explicit allow-list, not a name heuristic: an unknown method is treated as
+ * not-DFT so the app never silently changes the integration grid of a route it
+ * does not understand. `Opt=Tight` with DFT calls for `Int=UltraFine`; see
+ * `requiresUltraFineGrid` in ./tsForceConstants.js.
+ */
+export const DFT_METHODS = Object.freeze([
+  'B3LYP', 'B3PW91', 'PBE0', 'PBE', 'PBEPBE', 'M06', 'M06-2X', 'M06-L',
+  'ωB97X-D', 'wB97X-D', 'B97-D', 'TPSSTPSS', 'CAM-B3LYP', 'B2PLYP',
+]);
+
+const DFT_METHOD_KEYS = new Set(DFT_METHODS.map(methodKey));
+
+/** True when the method is a density functional in Gaussian 16. */
+export function isDftMethod(method) {
+  return DFT_METHOD_KEYS.has(methodKey(method));
+}
+
 export const MODERN_ROUTE_PRESET = Object.freeze({
   id: 'modern',
   label: 'Modern default (B3LYP-D3(BJ)/def2-SVP)',

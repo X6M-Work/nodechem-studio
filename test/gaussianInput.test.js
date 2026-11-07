@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildGaussianInput, DEMO_WATER, routeFor, outputNameFor } from '../src/shared/gaussianInput.js';
+import { defaultSettings } from '../src/shared/projectSchema.js';
 
 const baseSettings = {
   jobType: 'Opt',
@@ -106,6 +107,77 @@ describe('Gaussian input builder', () => {
   it('maps input names to Gaussian output names', () => {
     expect(outputNameFor('water_opt.gjf')).toBe('water_opt.out');
     expect(outputNameFor('water.com')).toBe('water.out');
+  });
+});
+
+describe('issue #15 — transition-state force constants', () => {
+  const tsSettings = (overrides = {}) => ({ ...baseSettings, jobType: 'Opt=TS', ...overrides });
+  const routeOf = (overrides = {}) => routeFor(tsSettings(overrides));
+
+  it('gives a new TS block Opt=(TS,CalcFC,NoEigenTest)', () => {
+    const settings = defaultSettings({ jobType: 'Opt=TS', checkpoint: 'ts_opt.chk' });
+    expect(routeFor(settings)).toBe('#p B3LYP/def2-SVP Opt=(TS,CalcFC,NoEigenTest) EmpiricalDispersion=GD3BJ');
+
+    const text = buildGaussianInput({ settings, molecule, inputName: 'ts_opt.gjf' });
+    expect(text.split('\n')).toContain('#p B3LYP/def2-SVP Opt=(TS,CalcFC,NoEigenTest) EmpiricalDispersion=GD3BJ');
+  });
+
+  it('covers all four force-constant choices', () => {
+    expect(routeOf({ forceConstants: 'CalcFC' })).toBe('#p B3LYP/6-31G(d) Opt=(TS,CalcFC,NoEigenTest)');
+    expect(routeOf({ forceConstants: 'CalcAll' })).toBe('#p B3LYP/6-31G(d) Opt=(TS,CalcAll)');
+    expect(routeOf({ forceConstants: 'ReadFC' })).toBe('#p B3LYP/6-31G(d) Opt=(TS,ReadFC)');
+    expect(routeOf({ forceConstants: 'default' })).toBe('#p B3LYP/6-31G(d) Opt=TS');
+  });
+
+  it('falls back to the safe CalcFC form for an unknown choice', () => {
+    expect(routeOf({ forceConstants: 'CalcEveryPoint' })).toBe('#p B3LYP/6-31G(d) Opt=(TS,CalcFC,NoEigenTest)');
+    expect(routeOf({ forceConstants: undefined })).toBe('#p B3LYP/6-31G(d) Opt=(TS,CalcFC,NoEigenTest)');
+  });
+
+  it('leaves a non-TS job untouched by the force-constant choice', () => {
+    expect(routeFor({ ...baseSettings, forceConstants: 'CalcAll' })).toBe('#p B3LYP/6-31G(d) Opt');
+    expect(routeFor({ ...baseSettings, jobType: 'Freq', forceConstants: 'CalcAll' })).toBe('#p B3LYP/6-31G(d) Freq');
+  });
+
+  it('never emits two Opt keywords when other route options are composed in', () => {
+    const settings = tsSettings({
+      forceConstants: 'ReadFC',
+      dispersion: 'GD3BJ',
+      scf: 'Tight',
+      grid: 'UltraFine',
+      solvation: true,
+      solvationModel: 'SMD',
+      solvent: 'Water',
+      customKeywords: 'Nosymm',
+      checkpoint: 'ts_opt.chk',
+    });
+    const route = routeFor(settings);
+    expect(route.match(/Opt=/g)).toHaveLength(1);
+    expect(route).toContain('Opt=(TS,ReadFC)');
+
+    const text = buildGaussianInput({
+      settings,
+      molecule,
+      inputName: 'ts_opt.gjf',
+      oldCheckpoint: 'r_freq.chk',
+    });
+    const routeLine = text.split('\n').find((line) => line.startsWith('#p'));
+    expect(routeLine.match(/Opt=/g)).toHaveLength(1);
+    expect(text).toContain('%OldChk=r_freq.chk');
+    expect(text).toContain('Geom=Check Guess=Read');
+  });
+
+  it('rejects extra keywords that would add a second Opt keyword', () => {
+    expect(() => routeOf({ customKeywords: 'Opt=(TS,CalcAll)' })).toThrow(/second Opt keyword/);
+    expect(() => routeOf({ forceConstants: 'default', customKeywords: 'Opt' })).toThrow(/second Opt keyword/);
+  });
+
+  it('refuses ReadFC when no checkpoint hand-off exists', () => {
+    expect(() => buildGaussianInput({
+      settings: tsSettings({ forceConstants: 'ReadFC' }),
+      molecule,
+      inputName: 'ts_opt.gjf',
+    })).toThrow(/ReadFC needs a checkpoint hand-off/);
   });
 });
 

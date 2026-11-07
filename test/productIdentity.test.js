@@ -6,16 +6,11 @@ import { fileURLToPath } from 'node:url';
 /**
  * Product-identity guard.
  *
- * The product was renamed from the Gaussian-specific working title to NodeChem
- * Studio (issue #37). These assertions pin the packaged identity — package name,
- * productName, appId, installer artifact, window title, renderer brand, bundle
- * and CI artifact names — so a later rename cannot silently leave the app,
- * the installer and the documentation describing two different products.
- *
- * They also pin the deliberate exceptions, because a blind find-and-replace is
- * how a rename like this breaks saved user state: the localStorage key, the
- * userData folder and the cluster-export format identifier all keep their
- * pre-rename value on purpose.
+ * The product is NodeChem Studio. These assertions pin the packaged identity —
+ * package name, productName, appId, installer artifact, window title, renderer
+ * brand, bundle and CI artifact names — and assert that no retired product name
+ * survives anywhere in the repository, so the docs, the installer and the app
+ * cannot drift apart again.
  */
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -26,13 +21,26 @@ function read(relativePath) {
 
 const pkg = JSON.parse(read('package.json'));
 
-// The retired brand is assembled from fragments so this checker does not itself
-// match a repository-wide grep for the old name.
+// Retired names are assembled from fragments so this checker does not itself
+// match a repository-wide grep for them.
 const RETIRED_BRAND = new RegExp([
   'Gaussian' + ' Node ' + 'Studio',
   'Gaussian' + 'Studio',
   'gaussian' + 'nodestudio',
   'Gaussian' + ' Studio',
+].join('|'), 'i');
+
+// Every retired product name AND the retired storage identifiers, which are now
+// named after the current product.
+const RETIRED_ANY = new RegExp([
+  'Gaussian' + ' Helper',
+  'Gaussian' + 'Helper',
+  'Gaussian' + ' Node ' + 'Studio',
+  'Gaussian' + 'Studio',
+  'Gaussian' + ' Studio',
+  'gaussian' + '-node-' + 'studio',
+  'gaussian' + '-studio',
+  'gh' + 'project',
 ].join('|'), 'i');
 
 const TEXT_EXTENSIONS = new Set(['.md', '.js', '.cjs', '.mjs', '.json', '.html', '.css', '.sh', '.yml', '.yaml', '.txt']);
@@ -138,64 +146,33 @@ describe('packaged product identity', () => {
       'scripts/package-bundle.sh',
       '.github/workflows/windows-package.yml',
       '.github/workflows/ci.yml',
-      // COLLABORATION.md is handled separately: it names the unchanged GitHub
-      // repository directory, which is not product branding.
-      // PROJECT-FORMAT.md is the normative spec: it must quote the pinned
-      // userData folder name, which is likewise not branding.
-      ...productFiles('docs').filter((rel) => rel.endsWith('.md')
-        && !rel.endsWith('COLLABORATION.md')
-        && !rel.endsWith('PROJECT-FORMAT.md')),
+      ...productFiles('docs').filter((rel) => rel.endsWith('.md')),
     ];
-    const stale = docsAndConfig.filter((rel) => /gaussian-node-studio|gaussian-studio/i.test(read(rel)));
+    const stale = docsAndConfig.filter((rel) => RETIRED_ANY.test(read(rel)));
     expect(stale).toEqual([]);
   });
 
-  it('keeps the GitHub repository path as a path, not as product branding', () => {
-    const mentions = read('docs/COLLABORATION.md')
-      .split('\n')
-      .filter((line) => /gaussian-node-studio/i.test(line));
-    expect(mentions).toHaveLength(1);
-    expect(mentions[0]).toContain('Projects\\gaussian-node-studio');
+  it('keeps no retired identifier in code or tests either', () => {
+    const codeFiles = [...productFiles('electron'), ...productFiles('src'), ...productFiles('test')];
+    const stale = codeFiles.filter((rel) => RETIRED_ANY.test(read(rel)));
+    expect(stale).toEqual([]);
   });
 });
 
-describe('persisted state stays compatible across the rename', () => {
-  it('keeps the runner preference key so saved settings survive', () => {
-    expect(read('src/renderer/app.js')).toContain("'gaussian-studio.run-config'");
-  });
-
-  it('pins userData to the pre-rename folder so runs, queues and localStorage survive', () => {
+describe('storage identifiers carry the current product name', () => {
+  it('names the userData folder after the product', () => {
     const main = read('electron/main.js');
-    expect(main).toContain("path.join(app.getPath('appData'), 'gaussian-node-studio')");
+    expect(main).toContain("path.join(app.getPath('appData'), 'nodechem-studio')");
     expect(main).toContain("app.setPath('userData', USER_DATA_DIR)");
   });
 
-  it('keeps the cluster-export format identifier that existing exports carry', () => {
-    expect(read('src/shared/clusterExport.js')).toContain("MANIFEST_KIND = 'gaussian-node-studio-cluster-export'");
-    expect(read('test/clusterExport.test.js')).toContain('gaussian-node-studio-cluster-export');
+  it('names the runner preference key after the product', () => {
+    expect(read('src/renderer/app.js')).toContain("'nodechem-studio.run-config'");
   });
 
-  it('confines the old slug to the pinned identifiers and internal scratch names', () => {
-    // Any new use of the hyphenated slug is a decision, not an accident: add the
-    // file here with a comment explaining why the value must not change.
-    const pinned = [
-      'electron/main.js', // userData folder pinned above
-      'src/shared/clusterExport.js', // durable manifest kind
-      'test/clusterExport.test.js', // asserts the durable manifest kind
-      'test/productIdentity.test.js', // this guard
-    ];
-    const pinnedScratch = [
-      'src/renderer/app.js', // localStorage key pinned above
-      'test/gaussianRunner.test.js', // mkdtemp scratch prefix, never user-visible
-      'test/runManager.test.js', // mkdtemp scratch prefix, never user-visible
-      'test/provenance.test.js', // mkdtemp scratch prefix, never user-visible
-      'test/productIdentity.test.js', // this guard
-    ];
-    const codeFiles = [...productFiles('electron'), ...productFiles('src'), ...productFiles('test')];
-    const slugged = codeFiles.filter((rel) => /gaussian-node-studio/.test(read(rel))).sort();
-    expect(slugged).toEqual([...pinned].sort());
-    const scratch = codeFiles.filter((rel) => /gaussian-studio/.test(read(rel))).sort();
-    expect(scratch).toEqual([...pinnedScratch].sort());
+  it('names the cluster-export format identifier after the product', () => {
+    expect(read('src/shared/clusterExport.js')).toContain("MANIFEST_KIND = 'nodechem-studio-cluster-export'");
+    expect(read('test/clusterExport.test.js')).toContain('nodechem-studio-cluster-export');
   });
 });
 

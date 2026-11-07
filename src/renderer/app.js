@@ -2064,10 +2064,8 @@ function renderRunGates(gates = []) {
   )).join('');
 }
 
-// Persisted preference key. It deliberately keeps the pre-rename brand slug:
-// changing it would silently drop the runner settings of every existing user
-// (localStorage lives under the pinned userData folder; see electron/main.js).
-const RUN_CONFIG_STORAGE_KEY = 'gaussian-studio.run-config';
+// Persisted preference key for the run console.
+const RUN_CONFIG_STORAGE_KEY = 'nodechem-studio.run-config';
 
 function readRunConfig() {
   try {

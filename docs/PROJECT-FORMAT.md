@@ -14,9 +14,8 @@ the app and anything that reads or writes a project file.
 | Cardinality | one file = one project; no sidecar files required to open it |
 | Size cap | 8 MiB before parsing |
 
-There is exactly one accepted extension. `.ghproject.json`, `.json` and any
-other suffix are refused on open and on save. The format has no released
-predecessor to stay compatible with, so no alias is maintained.
+There is exactly one accepted extension; any other suffix is refused on open
+and on save. The format has no released predecessor, so no alias is maintained.
 
 The extension is registered with the OS through electron-builder
 `fileAssociations`, so a double-clicked `.ncs` opens NodeChem Studio.
@@ -148,9 +147,9 @@ nothing outside the file is required to open a project.
 
 ### 7.2 Application data directory
 
-`userData`, pinned to `<appData>/gaussian-node-studio`. The folder name is a
-deliberate constant: Electron would otherwise derive it from the package name,
-and pinning keeps existing run folders and preferences across product renames.
+`userData`, pinned to `<appData>/nodechem-studio`. The name is a documented
+constant of the layout, so the storage location does not depend on how Electron
+derives its default directory.
 
 ```
 <userData>/

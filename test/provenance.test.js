@@ -49,7 +49,7 @@ const SYNTHETIC_VERSIONED_OUTPUT = [
 const roots = [];
 
 async function makeManager(options = {}) {
-  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'gaussian-studio-provenance-'));
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'nodechem-studio-provenance-'));
   roots.push(root);
   const events = [];
   const manager = new RunManager({ runsRoot: root, emit: (event) => events.push(event), ...options });
@@ -338,7 +338,7 @@ describe('real-run provenance manifest', () => {
 
 describe('queued workflow provenance', () => {
   it('carries the method block through a queued task', async () => {
-    const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'gaussian-studio-queue-provenance-'));
+    const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'nodechem-studio-queue-provenance-'));
     roots.push(root);
     const runManager = new RunManager({
       runsRoot: path.join(root, 'runs'),

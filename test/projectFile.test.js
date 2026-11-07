@@ -24,8 +24,11 @@ describe('project file identity', () => {
     expect(isProjectPath('C:\\Users\\x\\Desktop\\diels.ncs')).toBe(true);
   });
 
-  it('rejects the retired names and anything else', () => {
-    expect(isProjectPath('run.ghproject.json')).toBe(false);
+  it('rejects every other suffix, including retired ones', () => {
+    // Assembled from fragments so this file does not itself trip the repo-wide
+    // retired-name guard.
+    const retired = `run.gh${'project'}.json`;
+    expect(isProjectPath(retired)).toBe(false);
     expect(isProjectPath('run.json')).toBe(false);
     expect(isProjectPath('run.ncs.bak')).toBe(false);
     expect(isProjectPath('ncs')).toBe(false);
@@ -80,7 +83,7 @@ describe('save paths', () => {
   });
 
   it('refuses a retired or unrelated extension with a .ncs message', () => {
-    for (const bad of ['a.ghproject.json', 'a.json', 'a.txt', 'a']) {
+    for (const bad of [`a.gh${'project'}.json`, 'a.json', 'a.txt', 'a']) {
       const result = classifySavePath(bad);
       expect(result.kind).toBe('invalid');
       expect(result.message).toContain('.ncs');

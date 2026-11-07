@@ -1,8 +1,7 @@
 /**
  * Minimal, dependency-free Gaussian output reader for the first desktop slice.
  * It classifies termination and exposes the evidence needed by the run gates.
- * The full GaussianHelper parser can replace this module without changing the
- * runner contract.
+ * A fuller parser can replace this module without changing the runner contract.
  */
 
 import { terminationCodeOf } from './engines/canonical.js';

@@ -24,11 +24,10 @@ const DEV_URL = 'http://127.0.0.1:5173';
 // Injected by the packaging/launch environment. No git call and no network.
 const APP_COMMIT = String(process.env.GIT_COMMIT || '').trim() || 'unknown';
 
-// Electron derives the userData folder from the package name, so the rename to
-// nodechem-studio would otherwise point at an empty directory and strand every
-// existing run folder, queued job and saved preference. Pin userData to the
-// pre-rename folder name: runs/, queues/ and the localStorage store move with it.
-const USER_DATA_DIR = path.join(app.getPath('appData'), 'gaussian-node-studio');
+// Electron derives the userData folder from the package name, but pin it
+// explicitly so the storage location is a documented constant of the format
+// rather than an implicit side effect of the package name.
+const USER_DATA_DIR = path.join(app.getPath('appData'), 'nodechem-studio');
 fs.mkdirSync(USER_DATA_DIR, { recursive: true });
 app.setPath('userData', USER_DATA_DIR);
 

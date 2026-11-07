@@ -105,6 +105,8 @@ Success at v1:
 - Only the selected calculation runs. There is no queue, dependency scheduler, or automatic
   checkpoint copy.
 - Condition and loop nodes are drawable but not executed.
+- The **Post-HF final energy** gate is visible in the inspector but not evaluated in v0.1; the
+  parser currently exposes the SCF/free-energy records only. It is marked for GN-007.
 - Project loading does not validate the schema before rendering.
 - No Windows smoke test yet: this development container lacks GTK and a display, so the
   Electron binary cannot launch here. The renderer was verified in Chromium and the main-process

@@ -525,10 +525,16 @@ describe('QueueManager — durability', () => {
       { from: 'b', to: 'c', type: 'dependency' },
     ];
     const started = await first.queueManager.start({ projectName: 'crash', tasks, edges, options: queueOptions(first.exe) });
+    // Wait on the *persisted* state, not on the in-memory object: the manager
+    // mutates `task.status` before its atomic write lands, so polling `get()`
+    // can win the race and hand the next manager a file that still says
+    // `pending`. The durability claim is about the file.
+    const queueFile = path.join(first.queuesRoot, started.id, 'queue.json');
+    const readPersisted = async () => JSON.parse(await fsp.readFile(queueFile, 'utf8'));
     await waitFor(async () => {
-      const queue = await first.queueManager.get(started.id);
-      return queue.tasks.find((item) => item.nodeId === 'b')?.status === 'running';
-    }, { label: 'task b running' });
+      const record = await readPersisted();
+      return record.tasks.find((item) => item.nodeId === 'b')?.status === 'running';
+    }, { label: 'task b persisted as running' });
 
     // New app start over the same directories: no process exists for task b.
     const second = await makeStack({ root: first.base, withExecutable: false });

@@ -93,7 +93,7 @@ Success at v1:
 | Parameter parity | Route, SCF, optimization, frequency gates, population, IRC, scan, fragments, resources, checkpoint | inspector groups; wide mode |
 | `.gjf` builder | Link 0, route, title, charge/multiplicity, Cartesian coordinates, checkpoint hand-off | `test/gaussianInput.test.js` |
 | Output parser | termination, SCF, optimization, frequencies, imaginary modes, thermochemistry | `test/gaussianOutput.test.js` |
-| Gate evaluator | SCF, optimization, frequency, imaginary count/magnitude, thermochemistry | same suite |
+| Gate evaluator | output completeness, SCF, optimization, frequency, imaginary count/magnitude, thermochemistry | same suite |
 | Local runner | spawn `g16.exe`, tail output, cancel tree, run folder, dry run | `test/runManager.test.js` |
 | Durable queue | persisted queue, stable topological order, one task at a time, crash reconciliation, pause/resume/cancel-all | `test/queue.test.js`, `test/workflowGraph.test.js` |
 | Checkpoint staging | copies only along checkpoint edges; missing/empty `.chk` fails with a recorded reason; labelled fixture in dry runs | `test/checkpoint.test.js`, `test/queue.test.js` |
@@ -114,8 +114,9 @@ Success at v1:
   bundles are still unimplemented (GN-008).
 - Merge waits for all inputs (the `any` policy is recorded but readiness is still all-inputs);
   output nodes stop with a recorded reason until bundling exists.
-- Output discovery and final-energy parsing are implemented (GN-007); heavy logs are capped at
-  32 MiB with a recorded `truncated` flag.
+- Output discovery and final-energy parsing are implemented (GN-007); heavy logs are read as a
+  1 MiB head window plus a 31 MiB tail window, and a truncated parse records `parsed.complete:
+  false` with the byte ranges read and cannot pass the gates.
 - Project loading validates `schemaVersion: 1` and rejects malformed files before render; queue
   state is persisted, but the canvas still shows its own node states rather than live queue
   status.
@@ -225,7 +226,7 @@ through GN-008 are implemented and CI-tested on Linux; the Windows installer is 
 | Gaussian leaves child processes after cancel | `taskkill /T /F` on Windows; verify no `l1.exe`/`g16.exe` remains. |
 | Exit code 0 on error termination | Parser/gates are authoritative; add tests for error termination with code 0. |
 | Sleep/reboot mid-run | Persist queue; mark orphans interrupted; no fake completion. |
-| Large logs exhaust renderer memory | Tail is capped; final parse caps at 32 MiB; archive or truncate with a recorded reason. |
+| Large logs exhaust renderer memory | Tail is capped; the final parse reads a 1 MiB head plus a 31 MiB tail window and gates a partial parse as unknown. |
 | Demo geometry misleads users | Fixture and demo-water are labelled in the UI and README; GN-006 removes the demo path. |
 | Electron cannot be tested in this container | Windows smoke is GN-001; this container already verifies renderer in Chromium and runner in Vitest. |
 

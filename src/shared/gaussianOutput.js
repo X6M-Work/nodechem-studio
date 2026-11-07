@@ -13,8 +13,63 @@ function toNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
-export function parseGaussianOutput(text) {
+const EVIDENCE = [
+  ['banner', /\bEntering Gaussian System\b/i],
+  ['route', /^[ \t]*#[pPnNtT]?\s*\S/m],
+  ['geometry', /^[ \t]*[A-Z][a-z]?[ \t]+[-+]?\d+(?:\.\d+)?[ \t]+[-+]?\d+(?:\.\d+)?[ \t]+[-+]?\d+(?:\.\d+)?/m],
+  ['scf', /\bSCF Done:/i],
+  ['optimization', /\b(?:Optimization completed|Stationary point found)\b/i],
+  ['frequencies', /\bFrequencies\s*--/i],
+  ['thermochemistry', /\bSum of electronic and thermal (?:Free Energies|Enthalpies)\b/i],
+  ['termination', /\b(?:Normal termination of Gaussian|Error termination)\b/i],
+];
+
+/**
+ * Which records a piece of output can supply. The runner uses this to say what
+ * the head and tail windows of a large file each contributed.
+ */
+export function outputEvidence(text) {
+  if (typeof text !== 'string' || text.length === 0) return [];
+  return EVIDENCE.filter(([, pattern]) => pattern.test(text)).map(([name]) => name);
+}
+
+/**
+ * A byte range is partial when the caller says so, when the range itself says
+ * so, or when it does not cover the whole file. Never trust a single flag.
+ */
+function normalizeByteRange(byteRange, truncated) {
+  if (!byteRange || typeof byteRange !== 'object') return null;
+  const size = Number.isFinite(byteRange.size) ? byteRange.size : null;
+  const bytesRead = Number.isFinite(byteRange.bytesRead) ? byteRange.bytesRead : null;
+  const partial = truncated === true || byteRange.truncated === true
+    || (size !== null && bytesRead !== null && bytesRead < size);
+  const windows = Array.isArray(byteRange.windows) ? byteRange.windows.map((entry) => {
+    const start = Number.isFinite(entry?.start) ? entry.start : null;
+    const end = Number.isFinite(entry?.end) ? entry.end : null;
+    return {
+      name: typeof entry?.name === 'string' ? entry.name : 'window',
+      start,
+      end,
+      bytes: Number.isFinite(entry?.bytes) ? entry.bytes
+        : start !== null && end !== null ? Math.max(0, end - start) : null,
+      supplied: Array.isArray(entry?.supplied) ? entry.supplied.map(String) : [],
+    };
+  }) : [];
+  return { size, bytesRead, truncated: partial, windows };
+}
+
+/**
+ * Parse one output text.
+ *
+ * `truncated` and `byteRange` describe how much of the file the text came from.
+ * A partial parse is recorded as `complete: false`; `evaluateGates` then refuses
+ * to pass it. A whole text defaults to complete because the caller supplied it
+ * in full.
+ */
+export function parseGaussianOutput(text, { truncated = false, byteRange = null } = {}) {
   if (typeof text !== 'string') throw new TypeError('Gaussian output must be text.');
+  const bytes = normalizeByteRange(byteRange, truncated);
+  const complete = bytes ? !bytes.truncated : !truncated;
   const lines = text.split(/\r\n|\n|\r/);
   const joined = lines.join('\n');
 
@@ -87,6 +142,8 @@ export function parseGaussianOutput(text) {
     },
     thermochemistry: { freeEnergyHartree: freeEnergy },
     finalEnergy: { hartree: finalEnergyHartree, source: finalEnergySource },
+    complete,
+    bytes,
     lineCount: lines.length,
   };
 }
@@ -108,6 +165,14 @@ export function evaluateGates(parsed, {
   const add = (name, required, result, detail) => {
     gates.push({ name, required, result, detail: detail || null });
   };
+
+  const complete = parsed.complete === true;
+  const bytes = parsed.bytes || null;
+  const byteDetail = bytes && Number.isFinite(bytes.bytesRead)
+    ? `read ${bytes.bytesRead} of ${bytes.size ?? '?'} bytes${Array.isArray(bytes.windows) && bytes.windows.length ? ` (${bytes.windows.map((window) => window.name).join('+')})` : ''}`
+    : 'the parse does not cover the whole output';
+  add('Output complete', true, complete ? 'pass' : 'unknown',
+    complete ? (bytes && Number.isFinite(bytes.bytesRead) ? byteDetail : 'full output parsed') : byteDetail);
 
   add('Normal termination', true,
     parsed.termination === 'Normal termination of Gaussian' ? 'pass'
@@ -165,7 +230,9 @@ export function evaluateGates(parsed, {
   }
 
   const required = gates.filter((gate) => gate.required);
-  const overall = required.some((gate) => gate.result === 'fail') ? 'fail'
+  const evaluated = required.some((gate) => gate.result === 'fail') ? 'fail'
     : required.every((gate) => gate.result === 'pass') ? 'pass' : 'unknown';
-  return { overall, gates };
+  // Structural guard: no partial parse can ever report a pass, whatever else it found.
+  const overall = evaluated === 'pass' && !complete ? 'unknown' : evaluated;
+  return { overall, gates, complete };
 }

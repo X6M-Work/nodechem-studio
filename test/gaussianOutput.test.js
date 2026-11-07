@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseGaussianOutput, evaluateGates } from '../src/shared/gaussianOutput.js';
+import { parseGaussianOutput, evaluateGates, outputEvidence } from '../src/shared/gaussianOutput.js';
 import { makeFixtureOutput } from '../src/shared/fixtureOutput.js';
 
 describe('Gaussian output parser', () => {
@@ -105,5 +105,79 @@ describe('run gates', () => {
     const result = evaluateGates(withoutEnergy, { requireFinalEnergy: true });
     expect(result.overall).toBe('unknown');
     expect(result.gates.find((gate) => gate.name === 'Final energy record').result).toBe('unknown');
+  });
+});
+
+describe('output completeness', () => {
+  it('records a complete parse and the byte range it read', () => {
+    const text = makeFixtureOutput();
+    const size = Buffer.byteLength(text, 'utf8');
+    const parsed = parseGaussianOutput(text, {
+      byteRange: {
+        size,
+        bytesRead: size,
+        windows: [{ name: 'full', start: 0, end: size, bytes: size, supplied: ['termination'] }],
+      },
+    });
+    expect(parsed.complete).toBe(true);
+    expect(parsed.bytes).toEqual({
+      size,
+      bytesRead: size,
+      truncated: false,
+      windows: [{ name: 'full', start: 0, end: size, bytes: size, supplied: ['termination'] }],
+    });
+    expect(evaluateGates(parsed, { expectedImaginary: 0 }).overall).toBe('pass');
+  });
+
+  it('marks a truncated parse incomplete and refuses to pass any gate', () => {
+    const parsed = parseGaussianOutput(makeFixtureOutput(), {
+      truncated: true,
+      byteRange: {
+        size: 52_428_800,
+        bytesRead: 33_554_432,
+        windows: [
+          { name: 'head', start: 0, end: 1_048_576, bytes: 1_048_576, supplied: ['banner', 'route'] },
+          { name: 'tail', start: 18_874_368, end: 52_428_800, bytes: 33_554_432, supplied: ['termination', 'scf'] },
+        ],
+      },
+    });
+    expect(parsed.complete).toBe(false);
+    const result = evaluateGates(parsed, {
+      expectedImaginary: 0,
+      requireOptimization: true,
+      requireFrequency: true,
+      requireThermochemistry: true,
+      requireFinalEnergy: true,
+    });
+    expect(result.overall).toBe('unknown');
+    expect(result.complete).toBe(false);
+    const gate = result.gates.find((entry) => entry.name === 'Output complete');
+    expect(gate).toMatchObject({ required: true, result: 'unknown' });
+    expect(gate.detail).toContain('33554432 of 52428800 bytes');
+  });
+
+  it('treats a byte range that stops short of the file as partial even when the flag is missing', () => {
+    const parsed = parseGaussianOutput(makeFixtureOutput(), {
+      byteRange: { size: 1000, bytesRead: 400 },
+    });
+    expect(parsed.complete).toBe(false);
+    expect(parsed.bytes.truncated).toBe(true);
+  });
+
+  it('never lets a parse without a completeness record pass', () => {
+    const parsed = parseGaussianOutput(makeFixtureOutput());
+    const withoutCompleteness = { ...parsed };
+    delete withoutCompleteness.complete;
+    expect(evaluateGates(withoutCompleteness, { expectedImaginary: 0 }).overall).toBe('unknown');
+    expect(evaluateGates({ ...parsed, complete: false }, { expectedImaginary: 0 }).overall).toBe('unknown');
+    expect(evaluateGates(parsed, { expectedImaginary: 0 }).overall).toBe('pass');
+  });
+
+  it('names the evidence each window can supply', () => {
+    expect(outputEvidence(makeFixtureOutput())).toEqual([
+      'banner', 'route', 'geometry', 'scf', 'optimization', 'frequencies', 'thermochemistry', 'termination',
+    ]);
+    expect(outputEvidence('')).toEqual([]);
+    expect(outputEvidence('no records here')).toEqual([]);
   });
 });

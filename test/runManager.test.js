@@ -10,7 +10,7 @@ const roots = [];
 const MIB = 1024 * 1024;
 
 async function makeManager(options = {}) {
-  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'gaussian-studio-run-'));
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'nodechem-studio-run-'));
   roots.push(root);
   const events = [];
   const manager = new RunManager({ runsRoot: root, emit: (event) => events.push(event), ...options });

@@ -108,8 +108,8 @@ before unpacking. The bundle excludes `node_modules`, `dist`, `.git`, run folder
 ## 7. Environment rules for Will's machine
 
 - Windows 10/11, Node 22+ installed by the user.
-- Work in `C:\Users\<user>\Projects\gaussian-node-studio` (avoid a path with spaces in the
-  Gaussian scratch directory). The GitHub repository name is unchanged by the product rename.
+- Work in `C:\Users\<user>\Projects\nodechem-studio` (avoid a path with spaces in the
+  Gaussian scratch directory).
 - `npm install` is allowed in this project (it is a normal dependency install; the Gaussian
   install is separate and must not be copied).
 - Do not change system-wide environment variables. The runner sets `GAUSS_EXEDIR` and

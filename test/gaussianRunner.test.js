@@ -7,7 +7,7 @@ import { readOutputFile } from '../electron/runner/gaussianRunner.js';
 const roots = [];
 
 async function workspace() {
-  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'gaussian-studio-read-'));
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'nodechem-studio-read-'));
   roots.push(root);
   return root;
 }

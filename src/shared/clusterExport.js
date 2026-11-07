@@ -21,10 +21,9 @@ import { ORDERING_EDGE_TYPES, topologicalOrder } from './workflowGraph.js';
 
 export const CLUSTER_FORMATS = Object.freeze(['slurm', 'pbs']);
 
-// Durable export-format identifier, deliberately not renamed with the product:
-// cluster exports written before the rename still carry this value, and
+// Durable export-format identifier. It is a format constant, not branding:
 // `electron/runner/clusterFiles.js` rejects any other kind on import.
-export const MANIFEST_KIND = 'gaussian-node-studio-cluster-export';
+export const MANIFEST_KIND = 'nodechem-studio-cluster-export';
 export const MANIFEST_VERSION = 1;
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;

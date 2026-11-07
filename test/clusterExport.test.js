@@ -94,7 +94,7 @@ describe('planClusterExport — file set and staged inputs', () => {
     for (const task of tasks.filter((entry) => entry.type === 'calc')) {
       expect(fileNamed(plan, task.inputName)).toBe(task.inputText);
     }
-    expect(fileNamed(plan, 'manifest.json')).toContain('"kind": "gaussian-node-studio-cluster-export"');
+    expect(fileNamed(plan, 'manifest.json')).toContain('"kind": "nodechem-studio-cluster-export"');
     expect(fileNamed(plan, 'README.txt')).toContain('Licence');
     expect(fileNamed(plan, 'submit-all.sh')).toContain('sbatch');
   });

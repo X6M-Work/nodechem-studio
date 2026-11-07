@@ -10,6 +10,7 @@ import { makeFixtureOutput } from '../../src/shared/fixtureOutput.js';
 import { methodBlockFor } from '../../src/shared/gaussianInput.js';
 import { normaliseAppInfo, provenanceKindFor } from '../../src/shared/provenance.js';
 import { engineFor, DEFAULT_ENGINE_ID } from '../../src/shared/engines/index.js';
+import { normalizeValidityContext, runValidityChecks } from '../../src/shared/validityChecks.js';
 
 const SAFE_INPUT = /^[A-Za-z0-9._-]+\.(gjf|com)$/i;
 const SAFE_OUTPUT = /^[A-Za-z0-9._-]+\.(out|log)$/i;
@@ -181,7 +182,11 @@ export class RunManager {
         return;
       }
       const expected = payload.gates?.expectedImaginary;
-      outputText = engine.makeFixture({ imaginary: Number(expected) > 0 ? 1 : 0 });
+      const requestedMultiplicity = payload.validity?.molecule?.multiplicity;
+      outputText = engine.makeFixture({
+        imaginary: Number(expected) > 0 ? 1 : 0,
+        multiplicity: Number.isInteger(requestedMultiplicity) ? requestedMultiplicity : 1,
+      });
       await fsp.writeFile(path.join(runDir, payload.outputName), outputText, 'utf8');
       this.emit({ type: 'output', runId, text: outputText });
       const fixtureBytes = Buffer.byteLength(outputText, 'utf8');
@@ -252,6 +257,20 @@ export class RunManager {
       truncated: Boolean(context.outputMeta?.truncated),
       byteRange: context.outputMeta?.outputBytes || null,
     });
+    // Issue #25: the validity checks run on the parsed records, never on the
+    // exit code. They are reported next to the gates (gates.validity) and do
+    // not change gates.overall: the job can run correctly while the science is
+    // unsupported, and the record must say both.
+    const validityContext = payload.validity && typeof payload.validity === 'object' && engine.id === 'gaussian'
+      ? normalizeValidityContext(payload.validity)
+      : null;
+    const validity = validityContext
+      ? runValidityChecks({
+        ...validityContext,
+        parsed,
+        minMagnitude: payload.gates?.minMagnitude ?? null,
+      }, { phase: 'post', engine: engine.id })
+      : null;
     const gates = evaluateGates(parsed, {
       expectedImaginary: payload.gates?.expectedImaginary ?? null,
       minMagnitude: payload.gates?.minMagnitude ?? 50,
@@ -259,6 +278,7 @@ export class RunManager {
       requireFrequency: Boolean(payload.gates?.requireFrequency),
       requireThermochemistry: Boolean(payload.gates?.requireThermochemistry),
       requireFinalEnergy: Boolean(payload.gates?.requireFinalEnergy),
+      validity: validity ? validity.findings : null,
     });
 
     const status = parsed.status === 'error' || gates.overall === 'fail' ? 'failed'

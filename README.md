@@ -139,6 +139,55 @@ A `Freq` block whose checkpoint hand-off comes from an optimization left at the 
 convergence gets a validation warning naming the upstream block: the frequencies would
 otherwise be computed on a loosely converged geometry.
 
+## Validity checks
+
+Gates answer whether a job ran; validity checks answer whether the result is defensible.
+They are pure functions in `src/shared/validityChecks.js`, run before a job (project
+validation and the inspector's **Validate** action) and after it (`run.json` →
+`gates.validity`). A check never passes on a missing value: no geometry, no SCF method or
+no parsed record yields `unknown`, which is reported as such and is not a pass.
+
+| Check id | What it verifies | Phase | A failure is |
+| --- | --- | --- | --- |
+| `charge-multiplicity` | Electron-count parity, unpaired electrons ≤ electrons, and a restricted reference that contradicts an open-shell multiplicity | pre, post | error — blocks export |
+| `spin-contamination` | `S**2` before/after annihilation against `S(S+1)` for the multiplicity; the deviation is recorded | post | error above 0.50, warning above 0.10 |
+| `geometry-sanity` | Atom clashes, implausibly short contacts, stretched bonds and angle anomalies against covalent-radius sums | pre | error for a clash; warnings otherwise |
+| `imaginary-frequencies` | Exactly one imaginary mode for `Opt=TS`, none for `Freq`/`Opt Freq`, and the magnitude floor | post | error |
+| `method-basis-compatibility` | Heavy elements in a basis with no ECP, semi-empirical/composite methods given a basis, and empirical dispersion added to a functional that already has it | pre, post | error for the ECP gap; warnings otherwise |
+| `opt-convergence` | A frequency job only claims a minimum when its `Opt` (or upstream optimisation) reported `Optimization completed` | pre, post | reported as a failure; does not block the run |
+
+Findings carry `{ id, status, message, evidence, severity }`. In the run record they sit
+next to the gate verdict and **do not change `gates.overall`**: a job can execute
+correctly while the science is unsupported, and the record states both. Error-severity
+findings are what a future bundle export must refuse (see the publish-bundle work).
+
+Project validation returns the findings under `validity` (`overall`, `findings`,
+`blocking`). A blocking finding never makes a project file unopenable or unsaveable — a
+broken geometry or charge must stay editable — but **Validate**, **Export input**, and
+starting a run or queue all refuse it. A non-blocking failure (for example a frequency
+job whose optimisation did not converge) is reported as a warning and never stops the
+run.
+
+Every check can be switched off per calculation block under **Validity checks** in the
+inspector. The choice is stored as `settings.disabledChecks` (an array of check ids) and
+survives save/reopen; a disabled check is omitted from the result, never reported as a
+pass. Unknown ids are dropped with a warning.
+
+Thresholds are exported from the module and documented in its header: clash 0.55 × the
+covalent-radius sum, short bond 0.75, long-bond warning 1.20 (bond cut-off 1.30), linear
+angle 170° at O/S centres, acute angle 40°, spin-contamination limits 0.10/0.50 and a
+50 cm⁻¹ imaginary-mode floor. The geometry check uses a single-bond covalent-radius table
+(Cordero et al. 2008); an element outside that table makes the check `unknown` rather
+than passing it.
+
+**Scope.** These checks are offline and use only the project and the parsed output. They
+implement the subset of the research bundle's validation protocol
+(`08-benchmarks-and-validation.md`) that is decidable from those two inputs. Rules that
+need graph features not present yet — IRC path verification, standard-state declaration,
+conformer coverage, comparable-energy bookkeeping — are not implemented here. Dry runs
+exercise the same code path on the labelled synthetic fixture, and a dry run can
+therefore report a validity finding; the fixture is never presented as a real calculation.
+
 ## Requirements
 
 - Node.js 22 or newer and npm 10 or newer.
@@ -331,6 +380,7 @@ src/
     workflowGraph.js      stable topological order + readiness rules
     controlFlow.js        safe condition expression + loop semantics
     structureImport.js    .xyz/.mol/.sdf/.gjf/.com reader + validation
+    validityChecks.js     pre/post-run chemistry validity checks (issue #25)
     elements.js           periodic-table symbols and atomic numbers
     fixtureOutput.js      labelled synthetic output for dry runs
 test/                     Vitest suites
@@ -352,6 +402,8 @@ docs/
 - One Gaussian process at a time by design; there is no concurrent local scheduler.
 - Merge `any` is recorded but readiness still waits for every input.
 - Output bundling is not implemented; output nodes stop the queue with a recorded reason.
+- Validity-check thresholds are documented offline choices, not yet calibrated against a real
+  Gaussian log; `S**2` parsing and the geometry heuristics need a real-log check.
 - Canvas node badges show the project's saved state. The workflow queue panel is the live status.
 - The installer is unsigned, has no auto-update or crash reporting, and has not been installed on a
   clean Windows VM. The Linux AppImage is unsigned as well.

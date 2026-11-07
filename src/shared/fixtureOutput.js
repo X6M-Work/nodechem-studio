@@ -3,7 +3,11 @@
  * It is explicitly labelled FIXTURE and must never be presented as a real result.
  */
 
-export function makeFixtureOutput({ imaginary = 0 } = {}) {
+export function makeFixtureOutput({ imaginary = 0, multiplicity = 1 } = {}) {
+  // The fixture mirrors the requested multiplicity so a dry run of an
+  // open-shell job does not look like a closed-shell one to the validity
+  // checks. It is still labelled synthetic; no calculation is implied.
+  const method = Number(multiplicity) > 1 ? 'UB3LYP' : 'RB3LYP';
   const modes = imaginary > 0
     ? [-420.0, 610.0, 1580.0, 3650.0, 3760.0]
     : [610.0, 1580.0, 3650.0, 3760.0];
@@ -23,7 +27,7 @@ export function makeFixtureOutput({ imaginary = 0 } = {}) {
     ' H   0.000000    0.757200   -0.469200',
     ' H   0.000000   -0.757200   -0.469200',
     '',
-    ' SCF Done:  E(RB3LYP) =  -76.000000000     A.U. after    8 cycles',
+    ` SCF Done:  E(${method}) =  -76.000000000     A.U. after    8 cycles`,
     ' Optimization completed.',
     ' Stationary point found.',
     '',

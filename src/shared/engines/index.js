@@ -61,8 +61,8 @@ export const GAUSSIAN_ENGINE = Object.freeze({
     return parseGaussianOutput(text, options);
   },
 
-  makeFixture({ imaginary = 0 } = {}) {
-    return makeFixtureOutput({ imaginary });
+  makeFixture({ imaginary = 0, multiplicity = 1 } = {}) {
+    return makeFixtureOutput({ imaginary, multiplicity });
   },
 
   classify(text, exitCode) {

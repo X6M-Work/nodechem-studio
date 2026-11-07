@@ -105,6 +105,7 @@ Success at v1:
 | Control flow | safe condition expressions, one-branch release, loop retry/exhaustion, review never auto-passes | `test/controlFlow.test.js`, `test/queue.test.js` |
 | Output discovery | finds `<input>.out` or `<input>.log`, records `outputFile`/`outputSource`, prefers a terminated file | `test/outputDiscovery.test.js`, `test/runManager.test.js` |
 | Final energy gate | post-HF (`CCSD(T)`, `E(CORR)`, MP2…) or SCF fallback, evaluated as a gate | `test/gaussianOutput.test.js` |
+| Validity checks | charge/multiplicity parity, spin contamination vs S(S+1), covalent-radius geometry sanity, TS/minimum imaginary modes, basis/ECP and dispersion compatibility, optimisation-before-Freq; pre-run and post-run, individually disableable | `test/validityChecks.test.js` |
 | Structure import | `.xyz`, `.mol`/`.sdf`, `.gjf`/`.com` with element/coordinate/parity validation; project-level geometry feeds every `.gjf` | `test/structureImport.test.js`, `test/projectSchema.test.js`, `test/gaussianInput.test.js` |
 | Dry run | labelled synthetic output, full parser/gate path | run console PASS evidence |
 | Persistence | native Open/Save, schema v1 validation, v0.1 migration, canonical save | `test/projectSchema.test.js` |
@@ -130,6 +131,9 @@ Success at v1:
 - No real Linux or macOS Gaussian run yet. Platform handling (executable and Link 1 names, POSIX
   executable bit, symlink-resolved `GAUSS_EXEDIR`, scratch warnings) is covered by unit tests
   against fake executables only.
+- Validity thresholds (covalent-radius ratios, spin-contamination limits, imaginary-mode
+  floor) are documented offline choices, not yet calibrated against a real Gaussian log;
+  `S**2` parsing and the geometry heuristics need GN-001-style real-log confirmation.
 - The NSIS installer exists and CI builds it; it is unsigned and has not been installed on a
   clean Windows VM. No auto-update or crash reporting.
 
@@ -190,6 +194,13 @@ Success at v1:
 
 - Native structure import: `.xyz`, `.mol`, `.sdf`, `.gjf`, `.com`; validate element symbols,
   atom counts, charge/multiplicity parity, and fragment definitions.
+- Validity checks (issue #25, done): electron-count parity, spin contamination against
+  S(S+1), covalent-radius geometry sanity, stationarity (one imaginary mode for a TS,
+  none for a minimum), basis/ECP and dispersion compatibility, and optimisation
+  convergence before a downstream `Freq` may claim a minimum. Each check is a pure
+  function returning `{ id, status, message, evidence }`, can be disabled per block
+  (`settings.disabledChecks`), runs in project validation (blocking only where a run
+  would be meaningless) and in gate evaluation (`gates.validity`, non-blocking).
 - Project-level molecule editor; per-node overrides only where Gaussian permits them.
 - Route registry with an allow-list and warnings for unknown tokens.
 - Geometry source recorded in the provenance manifest for every run.
@@ -221,9 +232,10 @@ and PR title. A task is not done until its acceptance evidence is in the PR.
 | **GN-006** | Structure import — **implemented** (`src/shared/structureImport.js`, molecule drawer) | `src/shared/structureImport.js`, molecule drawer, tests | `.xyz`, `.mol`, `.sdf` import; bad data rejected |
 | **GN-007** | Output file discovery and parser hardening — **implemented** (`electron/runner/outputDiscovery.js`, final energy) | `gaussianRunner.js`, `gaussianOutput.js`, tests | Handles `<input>.out` and `<input>.log`; reports which file was parsed; error termination never passes |
 | **GN-008** | Windows packaging — **implemented** (electron-builder NSIS + `windows-package` CI workflow) | `electron-builder` config, `scripts/`, docs | Installer on clean VM; no Node required; dry run works |
+| **GN-009** | Validity checks (issue #25) — **implemented** (`src/shared/validityChecks.js`) | `projectSchema.js`, `gaussianOutput.js`, `runManager.js`, `queue.js`, `app.js`, `test/validityChecks.test.js` | Each check has pass/fail fixtures; disabling removes it; `run.json` reports `gates.validity` |
 
 Priority: **GN-001 remains the only unverified gate** (real Windows + licensed Gaussian). GN-002
-through GN-008 are implemented and CI-tested on Linux; the Windows installer is built by the
+through GN-009 are implemented and CI-tested on Linux; the Windows installer is built by the
 `Windows package` workflow but has not been installed on a clean VM. The Linux AppImage is built by
 the `Linux package` workflow but has not been installed on a clean Linux machine, and no real
 Linux/macOS Gaussian job has been run.

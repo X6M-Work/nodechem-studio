@@ -177,12 +177,20 @@ A project is a single JSON document with `schemaVersion: 1`.
 Each run gets an immutable folder under `<userData>/runs/<runId>/`:
 
 ```
-run.json        status, exit code, parsed data, gates, output file and truncation flag
+run.json        status, exit code, parsed data, gates, output file, truncation flag,
+                input/output sha256, Gaussian version/revision, app version/commit
 request.json    request metadata
 <input>.gjf     exact input handed to Gaussian
 <input>.out     raw output, or <input>.log when Gaussian wrote that name
 scratch/        GAUSS_SCRDIR for this run
 ```
+
+`run.json` is also the provenance manifest: it records the SHA-256 of the exact `.gjf` that
+was written and of the output that was parsed, the Gaussian banner (`parsed.program`), the app
+version and commit, and the normalised method block (functional, basis, dispersion, solvation,
+grid, SCF). Dry runs carry `provenance.kind: "fixture"` so a synthetic result cannot be mistaken
+for a calculation. **Verify input** in the run console recomputes the input hash and reports a
+mismatch if the `.gjf` changed after the run.
 
 Queue state lives under `<userData>/queues/<queueId>/` (`queue.json` plus staged inputs), so a
 workflow can be inspected after a restart. Output capture is capped at 32 MiB; the record carries

@@ -27,6 +27,7 @@ import {
   jobKeywordFor,
 } from '../shared/tsForceConstants.js';
 import { runClusterAction } from './clusterExport.js';
+import { provenanceSummary, syncVerifyButton, verifyRunInput } from './provenance.js';
 
 const desktop = window.desktop || null;
 
@@ -1862,15 +1863,19 @@ function tsForceConstantIssues(node) {
   return checkTsForceConstants({ settings: node.settings, upstream: checkpointSourceNode(node) });
 }
 
-function buildInputForNode(node) {
-  // A ReadFC TS block without a usable checkpoint hand-off has nothing to read.
-  const issues = tsForceConstantIssues(node);
-  if (issues.errors.length > 0) throw new Error(issues.errors[0]);
-  const settings = {
+function settingsForNode(node) {
+  return {
     ...node.settings,
     charge: state.project.molecule.charge,
     multiplicity: state.project.molecule.multiplicity,
   };
+}
+
+function buildInputForNode(node) {
+  // A ReadFC TS block without a usable checkpoint hand-off has nothing to read.
+  const issues = tsForceConstantIssues(node);
+  if (issues.errors.length > 0) throw new Error(issues.errors[0]);
+  const settings = settingsForNode(node);
   const imported = Array.isArray(state.project.molecule.coords) && state.project.molecule.coords.length > 0;
   return buildGaussianInput({
     title: node.title,
@@ -2023,6 +2028,7 @@ async function startSelectedRun() {
   state.run.nodeId = node.id;
   state.run.id = null;
   state.run.dir = null;
+  syncVerifyButton($('#verify-run'), null);
   $('#run-output').textContent = 'Starting local runner…\n';
   $('#run-gates').innerHTML = '';
   $('#run-title').textContent = node.title;
@@ -2036,6 +2042,7 @@ async function startSelectedRun() {
       inputText,
       inputName: `${safeBase(node.id)}.gjf`,
       outputName: outputNameFor(`${safeBase(node.id)}.gjf`),
+      settings: settingsForNode(node),
       executable: $('#run-exe').value.trim(),
       scratchDir: $('#run-scratch').value.trim(),
       dryRun,
@@ -2067,12 +2074,15 @@ function handleRunEvent(event) {
     appendRunOutput(event.text);
   } else if (event.type === 'done') {
     const record = event.record;
+    state.run.id = record.id || state.run.id;
     setRunState(record.status, record.status);
     renderRunGates(record.gates?.gates || []);
     $('#cancel-run')?.setAttribute('disabled', '');
     const verdict = record.gates?.overall || 'unknown';
     setStatusMessage(`Run ${record.status} · gates ${verdict} · ${record.title || 'local job'}`);
     appendRunOutput(`\nRun ${record.status} · gates: ${verdict}${record.error ? `\n${record.error}` : ''}\n`);
+    appendRunOutput(`\n${provenanceSummary(record)}\n`);
+    syncVerifyButton($('#verify-run'), state.run.id);
     toast(`Run ${record.status}${verdict !== 'unknown' ? ` · ${verdict}` : ''}.`);
   }
 }
@@ -2082,6 +2092,18 @@ async function cancelRun() {
   await desktop.cancelRun(state.run.id);
   setRunState('cancelled', 'stopping');
   appendRunOutput('\nCancellation requested…\n');
+}
+
+async function verifyCurrentRun() {
+  if (!desktop) { toast('Open the desktop app to verify a run folder.'); return; }
+  try {
+    const result = await verifyRunInput({ desktop, runId: state.run.id });
+    appendRunOutput(`${result.text}\n`);
+    toast(result.ok ? 'Input hash matches the recorded manifest.' : 'Input hash does not match the recorded manifest.');
+  } catch (error) {
+    appendRunOutput(`Verify error: ${error.message}\n`);
+    toast(`Verify error: ${error.message}`);
+  }
 }
 
 /* ── Workflow queue ───────────────────────────────────────── */
@@ -2122,6 +2144,7 @@ function buildWorkflowTasks() {
       inputName,
       outputName: outputNameFor(inputName),
       inputText: buildInputForNode(node),
+      settings: settingsForNode(node),
       gates: gatesForNode(node),
       checkpointName: checkpointNameFor(node),
       checkpointFrom: checkpointSourceFor(node),
@@ -2445,6 +2468,7 @@ function handleAction(action, element) {
     case 'cancel-workflow': cancelWorkflow(); break;
     case 'refresh-history': refreshHistory(); break;
     case 'cancel-run': cancelRun(); break;
+    case 'verify-run': verifyCurrentRun(); break;
     case 'open-project': openProject(); break;
     case 'save-project': saveProject(); break;
     case 'export': exportSelectedInput(); break;

@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('desktop', {
   runTask: (payload) => ipcRenderer.invoke('gaussian:run', payload),
   cancelRun: (runId) => ipcRenderer.invoke('gaussian:cancel', runId),
   listRuns: () => ipcRenderer.invoke('runs:list'),
+  verifyRun: (runId) => ipcRenderer.invoke('runs:verify', runId),
   startQueue: (payload) => ipcRenderer.invoke('queue:start', payload),
   pauseQueue: (queueId) => ipcRenderer.invoke('queue:pause', queueId),
   resumeQueue: (queueId) => ipcRenderer.invoke('queue:resume', queueId),

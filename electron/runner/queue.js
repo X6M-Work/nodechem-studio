@@ -36,6 +36,24 @@ function oneLine(value, max = 200) {
   return String(value ?? '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, max);
 }
 
+const ROUTE_SETTING_KEYS = ['method', 'basis', 'dispersion', 'scf', 'grid', 'solvationModel', 'solvent'];
+
+/**
+ * Keep only the route fields the provenance manifest needs. The renderer
+ * supplies them, so coerce and length-limit them before they are persisted or
+ * copied into a run record.
+ */
+function routeSettings(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const out = {};
+  for (const key of ROUTE_SETTING_KEYS) {
+    if (raw[key] === undefined || raw[key] === null) continue;
+    out[key] = oneLine(raw[key], 64);
+  }
+  if ('solvation' in raw) out.solvation = Boolean(raw.solvation);
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 function taskRecord(raw, index) {
   const nodeId = String(raw?.nodeId || '');
   if (!SAFE_ID.test(nodeId)) throw new Error(`Task ${index + 1} has an invalid node id.`);
@@ -91,6 +109,7 @@ function taskRecord(raw, index) {
     runDir: null,
     inputName,
     outputName,
+    settings: routeSettings(raw?.settings),
     gates: raw?.gates && typeof raw.gates === 'object' ? raw.gates : {},
     checkpointName,
     checkpointFrom,
@@ -400,6 +419,7 @@ export class QueueManager {
         inputText,
         inputName: task.inputName,
         outputName: task.outputName,
+        settings: task.settings,
         executable: queue.options.executable,
         scratchDir: queue.options.scratchDir,
         dryRun: queue.options.dryRun,

@@ -20,6 +20,12 @@ import { isElementSymbol } from './elements.js';
 import { MODERN_ROUTE_PRESET, defaultDispersionFor } from './routePresets.js';
 import { ENGINE_IDS } from './engines/index.js';
 import { XTB_METHODS, XTB_OPT_LEVELS } from './engines/xtb.js';
+import {
+  DEFAULT_TS_FORCE_CONSTANTS,
+  TS_FORCE_CONSTANT_IDS,
+  checkTsForceConstants,
+  hasOptKeyword,
+} from './tsForceConstants.js';
 
 const XTB_METHOD_IDS = XTB_METHODS.map((method) => method.id);
 
@@ -108,7 +114,7 @@ const NODE_TYPE_KEYS = {
 const SETTINGS_KEYS = new Set([
   'jobType', 'method', 'basis', 'memory', 'memoryUnit', 'nproc', 'checkpoint', 'charge',
   'multiplicity', 'dispersion', 'scf', 'grid', 'population', 'verbosity', 'solvation',
-  'solvationModel', 'solvent', 'customKeywords', 'ircDirection', 'gates',
+  'solvationModel', 'solvent', 'customKeywords', 'ircDirection', 'forceConstants', 'gates',
   'xtbMethod', 'xtbOptLevel',
 ]);
 const GATE_KEYS = new Set(['termination', 'scf', 'imaginary', 'minMagnitude', 'thermo', 'finalEnergy']);
@@ -148,6 +154,7 @@ export function defaultSettings(overrides = {}) {
     ircDirection: 'forward',
     xtbMethod: 'gfn2',
     xtbOptLevel: 'normal',
+    forceConstants: DEFAULT_TS_FORCE_CONSTANTS,
     gates: defaultGates(),
   };
   const settings = {
@@ -425,6 +432,11 @@ function normalizeSettings(c, raw, path, legacy) {
   if (checkpoint && !CHECKPOINT.test(checkpoint)) {
     c.error(`${path}.checkpoint`, 'must be a safe file name ending in .chk.');
   }
+  const customKeywords = readString(c, source.customKeywords, `${path}.customKeywords`, { legacy, fallback: '', max: 500 });
+  if (/^Opt\b/.test(String(source.jobType ?? 'Opt')) && hasOptKeyword(customKeywords)) {
+    c.warn(`${path}.customKeywords`,
+      'adds an Opt keyword, but the job type and force constants already emit one. Remove it, or the input builder will refuse to compose the route.');
+  }
   return {
     jobType: readEnum(c, source.jobType, JOB_TYPES, `${path}.jobType`, { legacy, fallback: 'Opt', required: true }) || 'Opt',
     method: readString(c, source.method, `${path}.method`, { legacy, fallback: MODERN_ROUTE_PRESET.method, max: 64, required: true }) || MODERN_ROUTE_PRESET.method,
@@ -443,10 +455,11 @@ function normalizeSettings(c, raw, path, legacy) {
     solvation: readBoolean(c, source.solvation, `${path}.solvation`, { legacy, fallback: false }),
     solvationModel: readEnum(c, source.solvationModel, SOLVATION_MODELS, `${path}.solvationModel`, { legacy, fallback: 'PCM' }),
     solvent: readString(c, source.solvent, `${path}.solvent`, { legacy, fallback: 'Water', max: 40 }) || 'Water',
-    customKeywords: readString(c, source.customKeywords, `${path}.customKeywords`, { legacy, fallback: '', max: 500 }),
+    customKeywords,
     ircDirection: readEnum(c, source.ircDirection, IRC_DIRECTIONS, `${path}.ircDirection`, { legacy, fallback: 'forward' }),
     xtbMethod: readEnum(c, source.xtbMethod, XTB_METHOD_IDS, `${path}.xtbMethod`, { legacy, fallback: 'gfn2' }),
     xtbOptLevel: readEnum(c, source.xtbOptLevel, XTB_OPT_LEVELS, `${path}.xtbOptLevel`, { legacy, fallback: 'normal' }),
+    forceConstants: readEnum(c, source.forceConstants, TS_FORCE_CONSTANT_IDS, `${path}.forceConstants`, { legacy, fallback: DEFAULT_TS_FORCE_CONSTANTS }),
     gates: normalizeGates(c, source.gates, `${path}.gates`, legacy),
   };
 }
@@ -708,6 +721,19 @@ export function validateProject(raw) {
         node.loop.target = '';
       }
     }
+  });
+
+  // Issue #15: a transition-state search must say where its curvature comes
+  // from. ReadFC is only valid when a checkpoint edge points at a job that
+  // actually writes force constants; the estimated-Hessian default warns but
+  // never blocks.
+  nodes.forEach((node, index) => {
+    if (node.type !== 'calc') return;
+    const checkpointEdge = edges.find((edge) => edge.to === node.id && edge.type === 'checkpoint');
+    const upstream = checkpointEdge ? byId.get(checkpointEdge.from) || null : null;
+    const { errors, warnings } = checkTsForceConstants({ settings: node.settings, upstream });
+    errors.forEach((message) => c.error(`nodes[${index}].settings.forceConstants`, message));
+    warnings.forEach((message) => c.warn(`nodes[${index}].settings.forceConstants`, message));
   });
 
   const project = {

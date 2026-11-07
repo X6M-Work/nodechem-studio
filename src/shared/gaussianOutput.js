@@ -9,6 +9,11 @@ import { terminationCodeOf } from './engines/canonical.js';
 
 const NUMBER = String.raw`[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[EeDd][-+]?\d+)?`;
 
+// The documented Gaussian banner, e.g. "Gaussian 16, Revision C.01". The
+// termination line ("Normal termination of Gaussian 16 at ...") deliberately
+// does not match: it carries no revision and says nothing about the build.
+const PROGRAM_BANNER = /\bGaussian\s+(\d{1,2}(?:\.\d+)?),\s*Revision\s+([A-Za-z]\.\d{2})\b/;
+
 function toNumber(value) {
   if (value === undefined || value === null) return null;
   const number = Number(String(value).replace(/[Dd]/, 'E'));
@@ -17,6 +22,7 @@ function toNumber(value) {
 
 const EVIDENCE = [
   ['banner', /\bEntering Gaussian System\b/i],
+  ['program', PROGRAM_BANNER],
   ['route', /^[ \t]*#[pPnNtT]?\s*\S/m],
   ['geometry', /^[ \t]*[A-Z][a-z]?[ \t]+[-+]?\d+(?:\.\d+)?[ \t]+[-+]?\d+(?:\.\d+)?[ \t]+[-+]?\d+(?:\.\d+)?/m],
   ['scf', /\bSCF Done:/i],
@@ -79,6 +85,13 @@ export function parseGaussianOutput(text, { truncated = false, byteRange = null 
   const errorTermination = /\bError termination\b/i.test(joined);
   const status = normalTermination ? 'completed' : errorTermination ? 'error' : 'incomplete';
 
+  const banner = joined.match(PROGRAM_BANNER);
+  const program = {
+    name: banner ? 'Gaussian' : null,
+    version: banner ? banner[1] : null,
+    revision: banner ? banner[2].toUpperCase() : null,
+  };
+
   let scf = { status: 'unknown', energyHartree: null, cycles: null, method: null };
   const scfMatch = joined.match(new RegExp(
     String.raw`SCF Done:\s+E\(([^)]+)\)\s*=\s*(${NUMBER})\s+A\.U\.\s+after\s+(\d+)\s+cycles`,
@@ -134,6 +147,7 @@ export function parseGaussianOutput(text, { truncated = false, byteRange = null 
     termination: normalTermination
       ? 'Normal termination of Gaussian'
       : errorTermination ? 'Error termination' : 'No termination marker',
+    program,
     scf,
     optimization,
     frequencies: {

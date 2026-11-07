@@ -15,6 +15,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const isDev = process.argv.includes('--dev');
 const DEV_URL = 'http://127.0.0.1:5173';
+// Injected by the packaging/launch environment. No git call and no network.
+const APP_COMMIT = String(process.env.GIT_COMMIT || '').trim() || 'unknown';
 
 let mainWindow = null;
 let runManager = null;
@@ -310,6 +312,7 @@ app.whenReady().then(async () => {
   runManager = new RunManager({
     runsRoot: path.join(app.getPath('userData'), 'runs'),
     emit: emitRunEvent,
+    appInfo: { version: app.getVersion(), commit: APP_COMMIT },
   });
   queueManager = new QueueManager({
     queuesRoot: path.join(app.getPath('userData'), 'queues'),
@@ -338,6 +341,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('gaussian:run', (_event, payload) => runManager.start(payload));
   ipcMain.handle('gaussian:cancel', (_event, runId) => runManager.cancel(runId));
   ipcMain.handle('runs:list', () => runManager.list());
+  ipcMain.handle('runs:verify', (_event, runId) => runManager.verify(runId));
   ipcMain.handle('queue:start', (_event, payload) => queueManager.start(payload));
   ipcMain.handle('queue:pause', (_event, queueId) => queueManager.pause(queueId));
   ipcMain.handle('queue:resume', (_event, queueId) => queueManager.resume(queueId));

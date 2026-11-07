@@ -3,6 +3,13 @@
  * Pure function: no DOM, no filesystem. The Electron runner writes the result.
  */
 
+import {
+  forceConstantsFor,
+  hasOptKeyword,
+  isTsJob,
+  jobKeywordFor,
+} from './tsForceConstants.js';
+
 export const DEMO_WATER = [
   { element: 'O', x: 0.000000, y: 0.000000, z: 0.117300 },
   { element: 'H', x: 0.000000, y: 0.757200, z: -0.469200 },
@@ -23,24 +30,69 @@ function finiteNumber(value, label, { min = -Infinity, max = Infinity } = {}) {
   return number;
 }
 
-export function routeFor(settings) {
-  const jobType = oneLine(settings.jobType, 'Opt');
-  const method = oneLine(settings.method, 'B3LYP');
-  const basis = oneLine(settings.basis, '6-31G(d)');
-  const job = jobType === 'IRC'
-    ? `IRC(${settings.ircDirection === 'both' ? 'forward,reverse' : (settings.ircDirection || 'forward')})`
-    : jobType;
-  const tokens = [`#p ${method}/${basis} ${job}`];
-  if (settings.dispersion) tokens.push(`EmpiricalDispersion=${settings.dispersion}`);
-  if (settings.scf) tokens.push(`SCF=${settings.scf}`);
-  if (settings.grid) tokens.push(`Integral=${settings.grid}`);
-  if (settings.population) tokens.push(`Pop=${settings.population}`);
-  if (settings.verbosity) tokens.push(`Output=${settings.verbosity}`);
-  if (settings.solvation) {
-    tokens.push(`SCRF=(${settings.solvationModel || 'PCM'},Solvent=${settings.solvent || 'Water'})`);
+/**
+ * Normalise the route settings once. `routeFor` renders from this object and
+ * `methodBlockFor` reports from it, so the provenance manifest and the input
+ * file can never disagree about method, basis, dispersion, solvation, grid or
+ * SCF convergence.
+ */
+function routeValues(settings = {}) {
+  const solvated = Boolean(settings.solvation);
+  return {
+    // One job keyword, composed in one place: a TS job and its force constants
+    // must never produce a second `Opt`.
+    job: jobKeywordFor(settings),
+    functional: oneLine(settings.method, 'B3LYP'),
+    basis: oneLine(settings.basis, '6-31G(d)'),
+    dispersion: settings.dispersion ? oneLine(settings.dispersion) : null,
+    scf: settings.scf ? oneLine(settings.scf) : null,
+    grid: settings.grid ? oneLine(settings.grid) : null,
+    population: settings.population ? oneLine(settings.population) : null,
+    verbosity: settings.verbosity ? oneLine(settings.verbosity) : null,
+    solvationModel: solvated ? oneLine(settings.solvationModel, 'PCM') : null,
+    solvent: solvated ? oneLine(settings.solvent, 'Water') : null,
+    customKeywords: oneLine(settings.customKeywords, ''),
+  };
+}
+
+export function routeFor(settings = {}) {
+  const values = routeValues(settings);
+  const tokens = [`#p ${values.functional}/${values.basis} ${values.job}`];
+  if (values.dispersion) tokens.push(`EmpiricalDispersion=${values.dispersion}`);
+  if (values.scf) tokens.push(`SCF=${values.scf}`);
+  if (values.grid) tokens.push(`Integral=${values.grid}`);
+  if (values.population) tokens.push(`Pop=${values.population}`);
+  if (values.verbosity) tokens.push(`Output=${values.verbosity}`);
+  if (values.solvationModel) {
+    tokens.push(`SCRF=(${values.solvationModel},Solvent=${values.solvent})`);
   }
-  if (settings.customKeywords) tokens.push(oneLine(settings.customKeywords));
+  if (values.customKeywords) {
+    // The job keyword above already owns `Opt`; a second one is ambiguous in
+    // the route section and silently drops one of the two.
+    if (hasOptKeyword(values.job) && hasOptKeyword(values.customKeywords)) {
+      throw new Error('Extra keywords must not add a second Opt keyword; set the job type and force constants instead.');
+    }
+    tokens.push(values.customKeywords);
+  }
   return tokens.join(' ');
+}
+
+/**
+ * The method block written into the provenance manifest. It comes from the
+ * same normalisation `routeFor` uses, so it describes the route in the written
+ * `.gjf` rather than a second, hand-copied interpretation of the settings.
+ * `null` means the route carries no keyword for that field.
+ */
+export function methodBlockFor(settings = {}) {
+  const values = routeValues(settings);
+  return {
+    functional: values.functional,
+    basis: values.basis,
+    dispersion: values.dispersion,
+    solvation: values.solvationModel ? `${values.solvationModel}/${values.solvent}` : null,
+    grid: values.grid,
+    scf: values.scf,
+  };
 }
 
 export function buildGaussianInput({
@@ -83,6 +135,11 @@ export function buildGaussianInput({
   const checkpoint = oneLine(settings.checkpoint || inputName.replace(/\.(gjf|com)$/i, '.chk'));
   if (!SAFE_NAME.test(checkpoint) || !/\.chk$/i.test(checkpoint)) {
     throw new Error('Checkpoint name must be a safe .chk basename.');
+  }
+  // ReadFC has nothing to read without an explicit hand-off; emitting it would
+  // build a route that can only fail at run time.
+  if (isTsJob(settings.jobType) && forceConstantsFor(settings) === 'ReadFC' && !oldCheckpoint) {
+    throw new Error('ReadFC needs a checkpoint hand-off; connect a Freq or Opt=CalcFC block as the checkpoint source, or choose CalcFC.');
   }
 
   const lines = [

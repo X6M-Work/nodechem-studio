@@ -1,0 +1,78 @@
+ FIXTURE OUTPUT — synthetic Gaussian output, not a real calculation.
+ Hand-written to exercise multi-link frequency scoping; no Gaussian was run.
+ Entering Gaussian System, Link 0=g16
+
+ Gaussian 16, Revision C.01
+ 7-Apr-2020
+
+ #P B3LYP/6-31G(d) Opt=CalcAll
+
+ Synthetic two-link Opt then Freq fixture
+
+ 0 1
+ O   0.000000    0.000000    0.117300
+ H   0.000000    0.757200   -0.469200
+ H   0.000000   -0.757200   -0.469200
+
+ Step number   1 out of a maximum of  20
+
+ SCF Done:  E(RB3LYP) =  -75.990000000     A.U. after    7 cycles
+
+         Item               Value     Threshold  Converged?
+ Maximum Force            0.012300     0.000450     NO
+ RMS     Force            0.009100     0.000300     NO
+ Maximum Displacement     0.030000     0.001800     NO
+ RMS     Displacement     0.020000     0.001200     NO
+ Predicted change in Energy=-2.345678D-04
+
+ Harmonic frequencies (cm**-1), IR intensities
+ Frequencies --    -25.6000               610.0000              1580.0000
+ Red. masses --      1.0800                 1.0800                 1.0800
+ Frc consts  --      0.0500                 0.3000                 1.6000
+ IR Inten    --     12.0000                60.0000                70.0000
+
+ Step number   2 out of a maximum of  20
+
+ SCF Done:  E(RB3LYP) =  -76.000000000     A.U. after    8 cycles
+
+         Item               Value     Threshold  Converged?
+ Maximum Force            0.000015     0.000450     YES
+ RMS     Force            0.000004     0.000300     YES
+ Maximum Displacement     0.000060     0.001800     YES
+ RMS     Displacement     0.000017     0.001200     YES
+ Predicted change in Energy=-1.234567D-08
+ Optimization completed.
+ Stationary point found.
+
+ Harmonic frequencies (cm**-1), IR intensities
+ Frequencies --     612.4000              1581.2000              3651.0000
+ Frequencies --    3762.0000
+ Red. masses --      1.0800                 1.0800                 1.0800
+ Frc consts  --      0.3000                 1.6000                 8.5000
+ IR Inten    --     60.0000                70.0000                50.0000
+
+ Normal termination of Gaussian 16 at Fri Nov  7 12:00:00 2026.
+ --Link1--
+ Entering Gaussian System, Link 0=g16
+
+ #P B3LYP/6-31G(d) Freq Geom=Check Guess=Read
+
+ Synthetic frequency link
+
+ 0 1
+ O   0.000000    0.000000    0.117300
+ H   0.000000    0.757200   -0.469200
+ H   0.000000   -0.757200   -0.469200
+
+ SCF Done:  E(RB3LYP) =  -76.000000000     A.U. after    1 cycles
+
+ Harmonic frequencies (cm**-1), IR intensities
+ Frequencies --     610.0000              1580.0000              3650.0000
+ Frequencies --    3760.0000
+ Red. masses --      1.0800                 1.0800                 1.0800
+ Frc consts  --      0.2900                 1.5900                 8.4000
+ IR Inten    --     61.0000                72.0000                51.0000
+
+ Sum of electronic and thermal Free Energies=         -76.020000
+
+ Normal termination of Gaussian 16 at Fri Nov  7 12:00:00 2026.

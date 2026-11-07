@@ -1,0 +1,16 @@
+ FIXTURE OUTPUT — synthetic Gaussian output, not a real calculation.
+ Hand-written to exercise error-cause capture; no Gaussian was run.
+ Entering Gaussian System, Link 0=g16
+
+ #P B3LYP/6-31G(d) Opt
+
+ Synthetic SCF failure fixture
+
+ 0 1
+ C   0.000000    0.000000    0.000000
+ H   0.000000    0.000000    1.090000
+
+ SCF Done:  E(RB3LYP) = -100.400000000     A.U. after   64 cycles
+ >>>>>>>>>> Convergence criterion not met.
+ Convergence failure -- run terminated.
+ Error termination via Lnk1e in C:\G16W\l502.exe at Fri Nov  7 12:00:00 2026.

@@ -67,6 +67,90 @@ function normalizeByteRange(byteRange, truncated) {
 }
 
 /**
+ * The `E (Thermal) / CV / S` table that follows the correction lines.
+ * Every component is `null` when the row was not printed, never zero by default.
+ */
+function emptyThermalComponents() {
+  return {
+    total: null,
+    electronic: null,
+    translational: null,
+    rotational: null,
+    vibrational: null,
+  };
+}
+
+function parseThermalComponents(lines) {
+  const table = {
+    thermalEnergyKcalPerMol: emptyThermalComponents(),
+    heatCapacityCalPerMolK: emptyThermalComponents(),
+    entropyCalPerMolK: emptyThermalComponents(),
+  };
+  const start = lines.findIndex((line) => /E\s*\(Thermal\)/i.test(line) && /\bCV\b/i.test(line));
+  if (start === -1) return table;
+  const row = new RegExp(
+    String.raw`^\s*(Total|Electronic|Translational|Rotational|Vibrational)\s+(${NUMBER})\s+(${NUMBER})\s+(${NUMBER})\s*$`,
+    'i',
+  );
+  let found = 0;
+  for (let index = start + 1; index < lines.length && index < start + 12 && found < 5; index += 1) {
+    const match = lines[index].match(row);
+    if (!match) {
+      if (found > 0 && lines[index].trim() === '') break;
+      continue;
+    }
+    const key = match[1].toLowerCase();
+    table.thermalEnergyKcalPerMol[key] = toNumber(match[2]);
+    table.heatCapacityCalPerMolK[key] = toNumber(match[3]);
+    table.entropyCalPerMolK[key] = toNumber(match[4]);
+    found += 1;
+  }
+  return table;
+}
+
+/**
+ * Parse the complete Gaussian thermochemistry block. Gaussian prints these
+ * records one per line after the frequency section; older outputs wrap the
+ * zero-point energy (Joules/Mol then Kcal/Mol) over two lines.
+ */
+function parseThermochemistry(joined, lines) {
+  const value = (pattern) => {
+    const match = joined.match(new RegExp(pattern, 'i'));
+    return match ? toNumber(match[1]) : null;
+  };
+
+  const temperature = joined.match(new RegExp(
+    String.raw`Temperature\s+(${NUMBER})\s+Kelvin`,
+    'i',
+  ));
+  const pressure = joined.match(new RegExp(
+    String.raw`Pressure\s+(${NUMBER})\s+Atm`,
+    'i',
+  ));
+  const zeroPointVibrational = joined.match(new RegExp(
+    String.raw`Zero-point vibrational energy\s+(${NUMBER})\s+\(Joules/Mol\)\s+(${NUMBER})\s+\(Kcal/Mol\)`,
+    'i',
+  ));
+
+  return {
+    // Kept from the first parser slice: callers and gates read this key.
+    freeEnergyHartree: value(String.raw`Sum of electronic and thermal Free Energies\s*=\s*(${NUMBER})`),
+    enthalpyHartree: value(String.raw`Sum of electronic and thermal Enthalpies\s*=\s*(${NUMBER})`),
+    thermalEnergyHartree: value(String.raw`Sum of electronic and thermal Energies\s*=\s*(${NUMBER})`),
+    zeroPointEnergyHartree: value(String.raw`Sum of electronic and zero-point Energies\s*=\s*(${NUMBER})`),
+    zeroPointCorrectionHartree: value(String.raw`Zero-point correction\s*=\s*(${NUMBER})`),
+    thermalCorrectionEnergyHartree: value(String.raw`Thermal correction to Energy\s*=\s*(${NUMBER})`),
+    thermalCorrectionEnthalpyHartree: value(String.raw`Thermal correction to Enthalpy\s*=\s*(${NUMBER})`),
+    thermalCorrectionFreeEnergyHartree: value(String.raw`Thermal correction to Gibbs Free Energy\s*=\s*(${NUMBER})`),
+    zeroPointVibrationalEnergyJoulesPerMol: zeroPointVibrational ? toNumber(zeroPointVibrational[1]) : null,
+    zeroPointVibrationalEnergyKcalPerMol: zeroPointVibrational ? toNumber(zeroPointVibrational[2]) : null,
+    temperatureK: temperature ? toNumber(temperature[1]) : null,
+    pressureAtm: pressure ? toNumber(pressure[1]) : null,
+    ...parseThermalComponents(lines),
+  };
+}
+
+/**
  * Parse one output text.
  *
  * `truncated` and `byteRange` describe how much of the file the text came from.
@@ -118,6 +202,7 @@ export function parseGaussianOutput(text, { truncated = false, byteRange = null 
     const match = line.match(new RegExp(String.raw`Frequencies\s*--\s+(.+)`, 'i'));
     if (!match) continue;
     for (const token of match[1].split(/\s+/)) {
+      if (token === '') continue;
       const value = toNumber(token);
       if (value !== null) frequencies.push(value);
     }
@@ -126,12 +211,7 @@ export function parseGaussianOutput(text, { truncated = false, byteRange = null 
   const imaginaryCount = imaginaryValues.length;
   const minImaginary = imaginaryValues.length ? Math.min(...imaginaryValues) : null;
 
-  let freeEnergy = null;
-  const freeEnergyMatch = joined.match(new RegExp(
-    String.raw`Sum of electronic and thermal Free Energies\s*=\s*(${NUMBER})`,
-    'i',
-  ));
-  if (freeEnergyMatch) freeEnergy = toNumber(freeEnergyMatch[1]);
+  const thermochemistry = parseThermochemistry(joined, lines);
 
   // Correlated (post-HF) energy when present; otherwise the SCF energy is the best record.
   const correlatedMatch = joined.match(new RegExp(
@@ -155,8 +235,11 @@ export function parseGaussianOutput(text, { truncated = false, byteRange = null 
       imaginaryCount,
       imaginaryValues: imaginaryValues.slice(0, 20),
       minImaginary,
+      values: frequencies,
+      // Ten lowest modes in cm^-1, imaginary modes included when present.
+      lowest: [...frequencies].sort((a, b) => a - b).slice(0, 10),
     },
-    thermochemistry: { freeEnergyHartree: freeEnergy },
+    thermochemistry,
     finalEnergy: { hartree: finalEnergyHartree, source: finalEnergySource },
     complete,
     bytes,

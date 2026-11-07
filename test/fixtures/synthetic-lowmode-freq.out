@@ -1,0 +1,53 @@
+ FIXTURE OUTPUT — synthetic, not a Gaussian calculation
+ This file reproduces the documented Gaussian 16 thermochemistry layout only
+ so the parser and correction tests have a stable input. The numbers are a
+ synthetic four-atom model, not a reported calculation.
+ Entering Gaussian System, Link 0=g16
+
+ #P B3LYP/6-31G(d) Opt Freq
+
+ Synthetic four-atom frequency fixture
+
+ 0 1
+ C   0.000000    0.000000    0.000000
+ H   0.000000    0.000000    1.090000
+ H   1.026719    0.000000   -0.363000
+ H  -0.513360    0.889165   -0.363000
+
+ SCF Done:  E(RB3LYP) = -100.500000000     A.U. after   10 cycles
+ Optimization completed.
+ Stationary point found.
+
+ Harmonic frequencies (cm**-1), IR intensities
+ Frequencies --     32.5000    78.4000   210.0000
+ Frequencies --    450.0000  1200.0000  3100.0000
+ Red. masses --      1.0000     1.0000     1.0000
+ Frc consts  --      0.0006     0.0028     0.0205
+ IR Inten    --      1.2000     2.4000     8.1000
+
+ -------------------
+ - Thermochemistry -
+ -------------------
+ Temperature   298.150 Kelvin.  Pressure   1.00000 Atm.
+
+ Zero-point vibrational energy     30334.6 (Joules/Mol)
+                                   7.24900 (Kcal/Mol)
+
+ Zero-point correction=                           0.011552 (Hartree/Particle)
+ Thermal correction to Energy=                    0.016860
+ Thermal correction to Enthalpy=                  0.017804
+ Thermal correction to Gibbs Free Energy=        -0.009670
+ Sum of electronic and zero-point Energies=           -100.488448
+ Sum of electronic and thermal Energies=              -100.483140
+ Sum of electronic and thermal Enthalpies=            -100.482196
+ Sum of electronic and thermal Free Energies=         -100.509670
+
+                            E (Thermal)             CV                S
+                                 KCal/Mol        Cal/Mol-Kelvin    Cal/Mol-Kelvin
+ Total                    10.580              8.000            57.837
+ Electronic                0.000              0.000             0.000
+ Translational             0.889              2.981            34.601
+ Rotational                0.889              2.981            10.754
+ Vibrational               8.802              2.038            12.482
+
+ Normal termination of Gaussian 16 at Fri Nov  7 12:00:00 2026.

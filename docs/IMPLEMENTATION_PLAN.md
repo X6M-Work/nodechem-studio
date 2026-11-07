@@ -52,6 +52,7 @@ Success at v1:
 │ Shared domain layer                                         │
 │  • gaussianInput.js: deterministic .gjf                     │
 │  • gaussianOutput.js: parser + gates                        │
+│  • thermochemistry.js: quasi-RRHO + standard-state lines    │
 │  • fixtureOutput.js: labelled dry-run fixture               │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -94,7 +95,8 @@ Success at v1:
 | Graph editing | Add, select, drag, connect, rewire, delete, duplicate, zoom, fit | UI smoke tests; graph state round-trips |
 | Parameter parity | Route, SCF, optimization, frequency gates, population, IRC, scan, fragments, resources, checkpoint | inspector groups; wide mode |
 | `.gjf` builder | Link 0, route, title, charge/multiplicity, Cartesian coordinates, checkpoint hand-off | `test/gaussianInput.test.js` |
-| Output parser | termination, SCF, optimization, frequencies, imaginary modes, thermochemistry | `test/gaussianOutput.test.js` |
+| Output parser | termination, SCF, optimization, frequencies, imaginary modes, the complete thermochemistry block, final correlated energy | `test/gaussianOutput.test.js` |
+| Thermochemistry corrections | full thermo block components, quasi-RRHO (Grimme, exposed cutoff) and 1 atm → 1 M standard state as separate toggleable lines | `test/thermochemistry.test.js` |
 | Gate evaluator | output completeness, SCF, optimization, frequency, imaginary count/magnitude, thermochemistry | same suite |
 | Local runner | spawn `g16.exe`, tail output, cancel tree, run folder, dry run | `test/runManager.test.js` |
 | Durable queue | persisted queue, stable topological order, one task at a time, crash reconciliation, pause/resume/cancel-all | `test/queue.test.js`, `test/workflowGraph.test.js` |

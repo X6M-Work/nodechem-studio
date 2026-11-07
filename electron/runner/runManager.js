@@ -3,11 +3,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { GaussianRunner } from './gaussianRunner.js';
 import { stageCheckpoint } from './checkpoint.js';
+import { isFile, sha256File, sha256Text } from './hashing.js';
 import { parseGaussianOutput, evaluateGates, outputEvidence } from '../../src/shared/gaussianOutput.js';
 import { makeFixtureOutput } from '../../src/shared/fixtureOutput.js';
+import { methodBlockFor } from '../../src/shared/gaussianInput.js';
+import { normaliseAppInfo, provenanceKindFor } from '../../src/shared/provenance.js';
 
 const SAFE_INPUT = /^[A-Za-z0-9._-]+\.(gjf|com)$/i;
 const SAFE_OUTPUT = /^[A-Za-z0-9._-]+\.(out|log)$/i;
+const SAFE_RUN_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const MAX_INPUT_BYTES = 2 * 1024 * 1024;
 
 function runIdFor(date = new Date()) {
@@ -21,10 +25,13 @@ async function writeJson(filePath, value) {
 }
 
 export class RunManager {
-  constructor({ runsRoot, emit, createRunner }) {
+  constructor({ runsRoot, emit, createRunner, appInfo }) {
     this.runsRoot = runsRoot;
     this.emitExternal = emit;
     this.createRunner = createRunner || (() => new GaussianRunner());
+    // Version comes from the packaged package.json; commit is injected by the
+    // build/launch environment. Neither is read from git or the network.
+    this.appInfo = normaliseAppInfo(appInfo);
     this.active = new Map();
     this.listeners = new Set();
   }
@@ -65,7 +72,11 @@ export class RunManager {
     const scratchDir = String(payload.scratchDir || '').trim() || path.join(runDir, 'scratch');
     await fsp.mkdir(runDir, { recursive: true });
     await fsp.mkdir(scratchDir, { recursive: true });
-    await fsp.writeFile(path.join(runDir, payload.inputName), inputText, 'utf8');
+    const inputPath = path.join(runDir, payload.inputName);
+    await fsp.writeFile(inputPath, inputText, 'utf8');
+    // Hash the bytes that are actually on disk, not the string we asked for.
+    const inputSha256 = await sha256File(inputPath);
+    const inputBytes = Buffer.byteLength(inputText, 'utf8');
 
     let checkpointHandoff = null;
     let stageError = null;
@@ -97,6 +108,16 @@ export class RunManager {
       executable: dryRun ? null : payload.executable,
       scratchDir,
       checkpointHandoff,
+      inputSha256,
+      outputSha256: null,
+      app: { ...this.appInfo },
+      provenance: {
+        kind: provenanceKindFor(dryRun),
+        method: payload.settings && typeof payload.settings === 'object'
+          ? methodBlockFor(payload.settings) : null,
+        input: { name: payload.inputName, bytes: inputBytes },
+        output: null,
+      },
       startedAt: new Date().toISOString(),
       finishedAt: stageError ? new Date().toISOString() : null,
       exitCode: null,
@@ -149,6 +170,7 @@ export class RunManager {
       await fsp.writeFile(path.join(runDir, payload.outputName), outputText, 'utf8');
       this.emit({ type: 'output', runId, text: outputText });
       const fixtureBytes = Buffer.byteLength(outputText, 'utf8');
+      context.outputPath = path.join(runDir, payload.outputName);
       context.outputMeta = {
         outputFile: payload.outputName,
         outputSource: 'fixture',
@@ -175,6 +197,7 @@ export class RunManager {
       });
       outputText = result.outputText;
       exitCode = result.exitCode;
+      context.outputPath = result.outputPath || null;
       context.outputMeta = {
         outputFile: result.outputName || null,
         outputSource: result.outputSource || 'stdout',
@@ -196,6 +219,7 @@ export class RunManager {
       }
     }
 
+    const outputProvenance = await this.describeOutput(context, outputText);
     const parsed = parseGaussianOutput(outputText, {
       truncated: Boolean(context.outputMeta?.truncated),
       byteRange: context.outputMeta?.outputBytes || null,
@@ -211,16 +235,54 @@ export class RunManager {
 
     const status = parsed.status === 'error' || gates.overall === 'fail' ? 'failed'
       : gates.overall === 'pass' ? 'completed' : 'needs-review';
-    await this.finish(context, { status, exitCode, parsed, gates, error: null });
+    await this.finish(context, { status, exitCode, parsed, gates, error: null, outputProvenance });
   }
 
-  async finish(context, { status, exitCode, parsed, gates, error }) {
+  /**
+   * Hash the output that was actually parsed. A file written by Gaussian (or
+   * the dry-run fixture) is hashed from its full bytes on disk; a stdout-only
+   * capture is hashed from the text handed to the parser and labelled as such.
+   */
+  async describeOutput(context, outputText) {
+    const candidates = [];
+    if (context.outputPath) candidates.push(context.outputPath);
+    if (context.outputMeta?.outputFile) {
+      candidates.push(path.join(context.runDir, context.outputMeta.outputFile));
+    }
+    for (const file of candidates) {
+      if (!(await isFile(file))) continue;
+      const stat = await fsp.stat(file);
+      return {
+        name: context.outputMeta?.outputFile || path.basename(file),
+        source: context.outputMeta?.outputSource || 'file',
+        bytes: stat.size,
+        hashSource: 'file',
+        sha256: await sha256File(file),
+      };
+    }
+    const text = String(outputText ?? '');
+    return {
+      name: context.outputMeta?.outputFile || null,
+      source: context.outputMeta?.outputSource || 'stdout',
+      bytes: Buffer.byteLength(text, 'utf8'),
+      hashSource: 'stream',
+      sha256: sha256Text(text),
+    };
+  }
+
+  async finish(context, { status, exitCode, parsed, gates, error, outputProvenance = null }) {
     const { runId, runDir } = context;
     const runPath = path.join(runDir, 'run.json');
     const record = JSON.parse(await fsp.readFile(runPath, 'utf8'));
+    const output = outputProvenance || null;
     const finished = {
       ...record,
       ...(context.outputMeta || {}),
+      outputSha256: output?.sha256 || null,
+      provenance: {
+        ...(record.provenance || {}),
+        ...(output ? { output } : {}),
+      },
       status,
       exitCode,
       parsed,
@@ -259,6 +321,43 @@ export class RunManager {
       if (context.timer) clearTimeout(context.timer);
       context.runner?.cancel();
     }
+  }
+
+  /**
+   * Recompute the input hash from the run folder and compare it with the
+   * record. The renderer supplies the id, so it is validated as one safe path
+   * segment before it is joined under the runs root.
+   */
+  async verify(runId) {
+    const id = String(runId ?? '');
+    if (!SAFE_RUN_ID.test(id)) throw new Error('Run id must be a safe run folder name.');
+    const runDir = path.join(this.runsRoot, id);
+    let record;
+    try {
+      record = JSON.parse(await fsp.readFile(path.join(runDir, 'run.json'), 'utf8'));
+    } catch (error) {
+      return {
+        runId: id,
+        status: 'missing-run',
+        ok: false,
+        error: error.code === 'ENOENT' ? 'The run folder has no run.json.' : error.message,
+      };
+    }
+    const inputName = String(record.inputName || '');
+    const base = { runId: id, inputName, expected: record.inputSha256 || null };
+    if (!SAFE_INPUT.test(inputName)) return { ...base, status: 'missing', ok: false };
+    if (!record.inputSha256) return { ...base, status: 'unrecorded', ok: false };
+    const inputPath = path.join(runDir, inputName);
+    if (!(await isFile(inputPath))) return { ...base, status: 'missing', ok: false };
+    const actual = await sha256File(inputPath);
+    const ok = actual === record.inputSha256;
+    return {
+      ...base,
+      status: ok ? 'match' : 'mismatch',
+      ok,
+      actual,
+      verifiedAt: new Date().toISOString(),
+    };
   }
 
   async list() {

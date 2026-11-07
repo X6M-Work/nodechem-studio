@@ -72,7 +72,9 @@ Success at v1:
 
 ```
 <userData>/runs/<runId>/
-  run.json        immutable record with status, exit code, parsed data, gates
+  run.json        immutable record with status, exit code, parsed data, gates,
+                  input/output sha256, Gaussian banner, app version/commit and
+                  the normalised method block (provenance manifest)
   request.json    request metadata (no full input duplicate)
   <task>.gjf      exact input handed to Gaussian
   <task>.out      raw stdout/stderr or Gaussian output file

@@ -1,7 +1,7 @@
 'use strict';
 
 /* ============================================================
-   Gaussian Node Studio — node-first Electron workspace
+   NodeChem Studio — node-first Electron workspace
    The graph is the primary surface. The runner is local-only.
    ============================================================ */
 
@@ -2010,9 +2010,14 @@ function renderRunGates(gates = []) {
   )).join('');
 }
 
+// Persisted preference key. It deliberately keeps the pre-rename brand slug:
+// changing it would silently drop the runner settings of every existing user
+// (localStorage lives under the pinned userData folder; see electron/main.js).
+const RUN_CONFIG_STORAGE_KEY = 'gaussian-studio.run-config';
+
 function readRunConfig() {
   try {
-    const saved = JSON.parse(localStorage.getItem('gaussian-studio.run-config') || '{}');
+    const saved = JSON.parse(localStorage.getItem(RUN_CONFIG_STORAGE_KEY) || '{}');
     if (saved.executable) $('#run-exe').value = saved.executable;
     if (saved.scratchDir) $('#run-scratch').value = saved.scratchDir;
     if (typeof saved.dryRun === 'boolean') $('#run-dry').checked = saved.dryRun;
@@ -2023,7 +2028,7 @@ function readRunConfig() {
 
 function saveRunConfig() {
   try {
-    localStorage.setItem('gaussian-studio.run-config', JSON.stringify({
+    localStorage.setItem(RUN_CONFIG_STORAGE_KEY, JSON.stringify({
       executable: $('#run-exe').value.trim(),
       scratchDir: $('#run-scratch').value.trim(),
       dryRun: $('#run-dry').checked,
@@ -2564,7 +2569,7 @@ function handleAction(action, element) {
     case 'import-log': toast('Runner output is parsed automatically. Native log import is the next milestone.'); break;
     case 'view-output': openRunConsole(); break;
     case 'project-menu': toast('Use Open or Save in the top bar for native project files.'); break;
-    case 'about': toast('The graph is the workspace. The inspector exposes the full job parameter set; the local runner executes one selected block in this v0.1 slice.'); break;
+    case 'about': toast('NodeChem Studio — the graph is the workspace. The inspector exposes the full job parameter set; the local runner executes one selected block in this v0.1 slice.'); break;
     default: break;
   }
 }

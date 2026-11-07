@@ -231,7 +231,7 @@ describe('project schema v1 — versioning', () => {
     expect(result.project).toBeNull();
     const error = result.errors.find((item) => item.path === 'schemaVersion');
     expect(error.message).toContain(`version ${SCHEMA_VERSION + 1}`);
-    expect(error.message).toContain('Update Gaussian Node Studio');
+    expect(error.message).toContain('Update NodeChem Studio');
   });
 
   it('rejects a non-integer schema version', () => {

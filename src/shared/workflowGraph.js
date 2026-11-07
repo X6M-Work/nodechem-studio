@@ -1,5 +1,5 @@
 /**
- * Durable queue planning for Gaussian Node Studio.
+ * Durable queue planning for NodeChem Studio.
  *
  * Pure functions over a task list and the project's edges. No filesystem, no
  * Electron: the queue manager persists state, these functions decide order.

@@ -17,6 +17,7 @@
 export const SCHEMA_VERSION = 1;
 
 import { isElementSymbol } from './elements.js';
+import { MODERN_ROUTE_PRESET, defaultDispersionFor } from './routePresets.js';
 
 /** Hard cap before JSON parsing; project files are small text documents. */
 export const MAX_PROJECT_BYTES = 8 * 1024 * 1024;
@@ -122,15 +123,15 @@ export function defaultGates(overrides = {}) {
 export function defaultSettings(overrides = {}) {
   const base = {
     jobType: 'Opt',
-    method: 'B3LYP',
-    basis: '6-31G(d)',
+    method: MODERN_ROUTE_PRESET.method,
+    basis: MODERN_ROUTE_PRESET.basis,
     memory: '4',
     memoryUnit: 'GB',
     nproc: '4',
     checkpoint: '',
     charge: 0,
     multiplicity: 1,
-    dispersion: '',
+    dispersion: defaultDispersionFor(MODERN_ROUTE_PRESET.method),
     scf: '',
     grid: '',
     population: '',
@@ -142,11 +143,17 @@ export function defaultSettings(overrides = {}) {
     ircDirection: 'forward',
     gates: defaultGates(),
   };
-  return {
+  const settings = {
     ...base,
     ...overrides,
     gates: defaultGates({ ...base.gates, ...(overrides.gates || {}) }),
   };
+  // An explicit dispersion override wins; otherwise follow the resolved method
+  // so a functional with built-in dispersion is not double-corrected.
+  if (!Object.prototype.hasOwnProperty.call(overrides, 'dispersion')) {
+    settings.dispersion = defaultDispersionFor(settings.method);
+  }
+  return settings;
 }
 
 export function kindForJob(jobType) {
@@ -376,8 +383,8 @@ function normalizeDefaults(c, raw, legacy) {
   const source = requiredObject(c, raw, 'defaults', legacy, {});
   warnUnknown(c, source, new Set(['method', 'basis', 'memory', 'memoryUnit', 'nproc']), 'defaults');
   return {
-    method: readString(c, source.method, 'defaults.method', { legacy, fallback: 'B3LYP', max: 64, required: true }) || 'B3LYP',
-    basis: readString(c, source.basis, 'defaults.basis', { legacy, fallback: '6-31G(d)', max: 64, required: true }) || '6-31G(d)',
+    method: readString(c, source.method, 'defaults.method', { legacy, fallback: MODERN_ROUTE_PRESET.method, max: 64, required: true }) || MODERN_ROUTE_PRESET.method,
+    basis: readString(c, source.basis, 'defaults.basis', { legacy, fallback: MODERN_ROUTE_PRESET.basis, max: 64, required: true }) || MODERN_ROUTE_PRESET.basis,
     memory: readMemory(c, source.memory, 'defaults.memory', { legacy, fallback: '4' }),
     memoryUnit: readEnum(c, source.memoryUnit, MEMORY_UNITS, 'defaults.memoryUnit', { legacy, fallback: 'GB' }),
     nproc: readInteger(c, source.nproc, 'defaults.nproc', { legacy, fallback: 4, min: 1, max: 1024 }),
@@ -412,8 +419,8 @@ function normalizeSettings(c, raw, path, legacy) {
   }
   return {
     jobType: readEnum(c, source.jobType, JOB_TYPES, `${path}.jobType`, { legacy, fallback: 'Opt', required: true }) || 'Opt',
-    method: readString(c, source.method, `${path}.method`, { legacy, fallback: 'B3LYP', max: 64, required: true }) || 'B3LYP',
-    basis: readString(c, source.basis, `${path}.basis`, { legacy, fallback: '6-31G(d)', max: 64, required: true }) || '6-31G(d)',
+    method: readString(c, source.method, `${path}.method`, { legacy, fallback: MODERN_ROUTE_PRESET.method, max: 64, required: true }) || MODERN_ROUTE_PRESET.method,
+    basis: readString(c, source.basis, `${path}.basis`, { legacy, fallback: MODERN_ROUTE_PRESET.basis, max: 64, required: true }) || MODERN_ROUTE_PRESET.basis,
     memory: readMemory(c, source.memory, `${path}.memory`, { legacy, fallback: '4' }),
     memoryUnit: readEnum(c, source.memoryUnit, MEMORY_UNITS, `${path}.memoryUnit`, { legacy, fallback: 'GB' }),
     nproc: readInteger(c, source.nproc, `${path}.nproc`, { legacy, fallback: 4, min: 1, max: 1024 }),

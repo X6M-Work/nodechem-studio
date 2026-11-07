@@ -7,8 +7,11 @@ job parameter set without hiding the canvas.
 ![NodeChem Studio: node graph with the Reactant frequency inspector open](docs/images/studio-overview.png)
 
 **Status: v0.1 — local runner slice.** The graph, durable workflow queue, dry-run path and project
-format are implemented and covered by tests. Real Gaussian execution requires a licensed Gaussian
-16W installation on the same Windows PC; the Windows smoke test (GN-001) is still pending.
+format are implemented and covered by tests. Real Gaussian execution requires a licensed Gaussian 16
+installation on the same machine: the Windows console runner is `g16.exe`, the Linux and macOS
+console runner is `g16`. The Windows smoke test (GN-001) is still pending, and no real Linux or
+macOS job has been run yet — the platform handling is covered by unit tests against fake
+executables.
 
 ## What it does
 
@@ -139,8 +142,19 @@ otherwise be computed on a loosely converged geometry.
 ## Requirements
 
 - Node.js 22 or newer and npm 10 or newer.
-- For a real run: a licensed Gaussian 16W installation on the **same Windows PC**. The console
-  executable is normally `C:\G16W\g16.exe`; `g16w.exe` is the GUI and is not used.
+- For a real run: a licensed Gaussian 16 installation on the **same machine and operating system**
+  as the app.
+  - **Windows:** the console executable is normally `C:\G16W\g16.exe`; `g16w.exe` is the GUI and is
+    not used. Preflight expects `l1.exe` in the same directory.
+  - **Linux and macOS:** the console executable is `g16`, normally `$g16root/g16/g16`, with Link 1
+    (`l1`) beside it. Preflight resolves a symlink such as `/usr/local/bin/g16` to the real
+    installation directory and sets `GAUSS_EXEDIR` to that directory for the child process.
+  - **Scratch:** set `GAUSS_SCRDIR` to node-local disk. Preflight warns — but does not rewrite or
+    block — when the path contains spaces on any platform, and when a Linux/macOS path looks
+    NFS/SMB-mounted. Keep the path space-free and off network filesystems.
+  - **WSL:** a Windows Gaussian licence may not be used under WSL. Use a native Linux install with
+    its own licence on Linux, or run the Windows build on Windows. The same rule applies in
+    reverse: a Linux licence does not authorise a Windows binary.
 - No Gaussian binaries, licence files or scratch data are included in this repository or in any
   bundle.
 
@@ -179,10 +193,15 @@ A dry run writes a labelled `FIXTURE OUTPUT` file. It never claims to be a Gauss
 ## Running a real Gaussian job
 
 1. Open **Run** and click **Browse** next to *Gaussian executable*. Select the licensed console
-   executable, normally `C:\G16W\g16.exe`.
-2. Set a scratch directory without spaces if possible, for example `C:\G16W\SCRATCH`.
-3. Click **Preflight**. It checks the executable, Link 1, run and scratch directories, platform and
-   host resources. Every check must pass.
+   executable: `C:\G16W\g16.exe` on Windows, or `g16` in the installation directory on Linux and
+   macOS (a symlink is resolved for you).
+2. Set a scratch directory on node-local disk without spaces if possible: `C:\G16W\SCRATCH` on
+   Windows, `/scratch/$USER` or `/tmp/g16-scratch` on Linux and macOS. Preflight warns about spaces
+   and, on Linux/macOS, about network mounts; it never changes the path you chose.
+3. Click **Preflight**. It checks the platform, the console executable and its name for that
+   platform, the executable bit (Linux/macOS), `GAUSS_EXEDIR` — the directory that actually holds
+   Link 1 — the run and scratch directories, and host resources. Every check must pass; warnings do
+   not block a run.
 4. Uncheck **Dry run** and run a small job with the licence holder's permission.
 5. Inspect the run folder: `run.json`, the exact `.gjf`, the output file, the parsed termination
    record and the gate evidence.
@@ -252,6 +271,26 @@ The **Windows package** GitHub Actions workflow builds the same installer on `wi
 (manual dispatch or a `v*` tag) and uploads it as an artifact. No Gaussian binaries or licence
 files are included. Installing on a clean Windows VM remains part of the GN-001 acceptance step.
 
+## Linux build
+
+On a Linux machine with Node 22:
+
+```bash
+npm ci
+npm test
+npm run dist:linux
+```
+
+`release/nodechem-studio-0.1.0-x86_64.AppImage` is a portable, unsigned AppImage; it bundles
+Electron and needs no Node on the target machine. It is not a Gaussian installer and contains no
+Gaussian binaries or licence files — it drives an installation the user already has on that Linux
+machine.
+
+The **Linux package** GitHub Actions workflow builds the same AppImage on `ubuntu-latest` (manual
+dispatch or a `v*` tag) and uploads it as an artifact. There is no macOS build target: no signed
+Apple toolchain or licensed macOS Gaussian installation exists to test one, so macOS support is
+limited to the local runner and preflight.
+
 ## Commands
 
 | Command | Purpose |
@@ -263,16 +302,19 @@ files are included. Installing on a clean Windows VM remains part of the GN-001 
 | `npm run build` | Vite production renderer build |
 | `npm run dist` | Vite build + NSIS installer (run on Windows) |
 | `npm run dist:dir` | Unpacked Windows app directory, for a quick smoke test |
+| `npm run dist:linux` | Vite build + unsigned AppImage (run on Linux) |
 | `npm run bundle` | Hand-off tarball/zip with a checksum manifest |
 
 ## Project layout
 
 ```
 electron/
-  main.js                 app lifecycle, dialogs, IPC, preflight
+  main.js                 app lifecycle, dialogs, IPC
   preload.cjs             contextBridge API
   runner/
     gaussianRunner.js     spawn + tail one Gaussian process
+    gaussianPlatform.js   per-platform executable, Link 1 and scratch rules
+    preflight.js          run-configuration checks (no Electron import)
     runManager.js         run folders, records, dry-run fixture, gates
     queue.js              durable workflow queue + scheduler
     checkpoint.js         checkpoint staging into the downstream run folder
@@ -280,6 +322,7 @@ electron/
 src/
   renderer/
     app.js                node graph, inspector, palette, run console
+    preflightReport.js    PASS/FAIL/WARN console formatting
     styles.css            node-first visual system
   shared/
     gaussianInput.js      deterministic .gjf builder
@@ -301,20 +344,26 @@ docs/
 
 - **No Windows/Gaussian acceptance run yet.** The UI and dry-run pipeline have been exercised on
   Linux; GN-001 must still prove a licensed Gaussian run on the licensed machine.
+- **No real Linux or macOS Gaussian run yet.** Preflight and the runner are covered by unit tests
+  against fake executables (platform resolution, executable name and permission, `GAUSS_EXEDIR`
+  resolution, scratch warnings), not against a licensed installation.
+- **No macOS build target.** macOS is supported by preflight and the runner; no signing identity or
+  licensed macOS Gaussian installation exists to build and test an app bundle.
 - One Gaussian process at a time by design; there is no concurrent local scheduler.
 - Merge `any` is recorded but readiness still waits for every input.
 - Output bundling is not implemented; output nodes stop the queue with a recorded reason.
 - Canvas node badges show the project's saved state. The workflow queue panel is the live status.
 - The installer is unsigned, has no auto-update or crash reporting, and has not been installed on a
-  clean Windows VM.
+  clean Windows VM. The Linux AppImage is unsigned as well.
 - No remote execution, job submission, cloud API or telemetry. This is intentional.
 
 ## Safety and licensing
 
 - Gaussian is commercial software. This project only **drives an installation the user is licensed
   to use on that machine**.
-- Do not copy a Gaussian installation to another computer, and do not run a Windows licence under
-  WSL or a Linux build on a Windows licence.
+- Gaussian licences are platform-bound. Do not copy a Gaussian installation to another computer, do
+  not run a Windows licence under WSL, and do not move an installation to an operating system it is
+  not licensed for.
 - Confirm with the licence holder whether other users or remote access are permitted before using
   this app on a shared machine.
 - Dry run is deliberately the default. It produces a file headed `FIXTURE OUTPUT` and never claims

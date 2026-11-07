@@ -36,6 +36,7 @@ import {
 import { runClusterAction } from './clusterExport.js';
 import { provenanceSummary, syncVerifyButton, verifyRunInput } from './provenance.js';
 import { mountThermochemistryView } from './thermochemistryView.js';
+import { formatPreflightReport } from './preflightReport.js';
 
 const desktop = window.desktop || null;
 
@@ -2125,8 +2126,7 @@ async function preflightRun({ quiet = false } = {}) {
     if (!quiet) toast(`Preflight error: ${error.message}`);
     return null;
   }
-  const lines = result.checks.map((check) => `${check.ok ? 'PASS' : 'FAIL'}  ${check.label}${check.detail ? ` — ${check.detail}` : ''}`);
-  appendRunOutput(`Preflight · ${result.ok ? 'ready' : 'issues found'}\n${lines.join('\n')}\n\n`);
+  appendRunOutput(formatPreflightReport(result));
   if (!quiet) toast(result.ok ? 'Preflight passed.' : 'Preflight found issues; see the run console.');
   return result;
 }

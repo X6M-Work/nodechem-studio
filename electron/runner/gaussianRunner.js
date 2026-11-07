@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { discoverOutput, outputCandidates } from './outputDiscovery.js';
 import { outputEvidence } from '../../src/shared/gaussianOutput.js';
+import { gaussianInstallDir } from './gaussianPlatform.js';
 
 const MAX_TAIL_BYTES = 256 * 1024;
 const MAX_FINAL_BYTES = 32 * 1024 * 1024;
@@ -115,7 +116,10 @@ export class GaussianRunner {
     onOutput = () => {},
     timeoutMs = 0,
   }) {
-    const exeDir = path.dirname(executable);
+    // On POSIX a symlinked `g16` must still point GAUSS_EXEDIR at the real
+    // installation directory, where Link 1 lives. Windows keeps the plain
+    // executable directory, byte-identical to the original runner.
+    const exeDir = gaussianInstallDir(executable, process.platform);
     const env = {
       ...process.env,
       GAUSS_EXEDIR: exeDir,

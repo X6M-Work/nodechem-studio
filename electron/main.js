@@ -1,12 +1,12 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import os from 'node:os';
 import fsp from 'node:fs/promises';
 import fs from 'node:fs';
 import { RunManager } from './runner/runManager.js';
 import { QueueManager } from './runner/queue.js';
-import { XtbRunner } from './runner/xtbRunner.js';
+import { preflight } from './runner/preflight.js';
+import { defaultGaussianExecutablePath } from './runner/gaussianPlatform.js';
 import { writeClusterExport, importClusterExport } from './runner/clusterFiles.js';
 import { parseProjectText, stringifyProject, summarizeErrors } from '../src/shared/projectSchema.js';
 import {
@@ -110,105 +110,13 @@ async function chooseExecutable(config = {}) {
     title: isXtb ? 'Locate the xTB executable' : 'Locate the licensed Gaussian executable',
     defaultPath: isXtb
       ? (process.platform === 'win32' ? 'C:\\xtb\\bin\\xtb.exe' : '/usr/local/bin/xtb')
-      : (process.platform === 'win32' ? 'C:\\G16W\\g16.exe' : '/usr/local/g16/g16'),
+      : defaultGaussianExecutablePath(process.platform),
     properties: ['openFile'],
     filters: process.platform === 'win32'
       ? [{ name: isXtb ? 'xTB executable' : 'Gaussian for Windows', extensions: ['exe'] }, { name: 'All files', extensions: ['*'] }]
       : [{ name: 'All files', extensions: ['*'] }],
   });
   return result.canceled ? null : result.filePaths[0];
-}
-
-async function preflight(config = {}) {
-  const checks = [];
-  const engine = engineOrDefault(config.engine);
-  const isXtb = engine.id === 'xtb';
-  const dryRun = Boolean(config.dryRun);
-  const executable = String(config.executable || '').trim();
-  const scratchDir = String(config.scratchDir || '').trim();
-  const add = (id, label, ok, detail = '') => checks.push({ id, label, ok, detail });
-
-  add('platform', 'Operating system', ['win32', 'linux', 'darwin'].includes(process.platform),
-    `${process.platform} ${os.release()}`);
-  add('architecture', 'Architecture', ['x64', 'arm64'].includes(process.arch), process.arch);
-
-  if (dryRun) {
-    add('dry-run', 'Dry-run fixture', true, `No ${engine.label} process will be started.`);
-  } else if (isXtb) {
-    add('executable', 'xTB executable configured', Boolean(executable), executable || 'Not configured');
-    if (executable) {
-      try {
-        const stat = await fsp.stat(executable);
-        add('executable-exists', 'Executable exists', stat.isFile(), executable);
-        add('executable-name', 'xTB executable', /^xtb(\.exe)?$/i.test(path.basename(executable)),
-          `Found ${path.basename(executable)}`);
-        const parameterPath = XtbRunner.parameterPathFor(executable, config.xtbPath);
-        add('xtb-parameters', 'xTB parameter files found',
-          Boolean(parameterPath) || Boolean(process.env.XTBPATH),
-          parameterPath || process.env.XTBPATH || 'Set XTBPATH to the xTB share/xtb directory');
-      } catch (error) {
-        add('executable-exists', 'Executable exists', false, error.message);
-      }
-    }
-  } else {
-    add('executable', 'Gaussian executable configured', Boolean(executable), executable || 'Not configured');
-    if (executable) {
-      try {
-        const stat = await fsp.stat(executable);
-        add('executable-exists', 'Executable exists', stat.isFile(), executable);
-        if (process.platform === 'win32') {
-          add('executable-name', 'Windows console executable', /^g16\.exe$/i.test(path.basename(executable)),
-            `Found ${path.basename(executable)}; g16w.exe is the GUI, not the runner.`);
-        }
-        const exeDir = path.dirname(executable);
-        add('gauss-exedir', 'Gaussian executable directory readable', fs.existsSync(exeDir), exeDir);
-        const l1 = path.join(exeDir, process.platform === 'win32' ? 'l1.exe' : 'l1.exe');
-        add('link1-present', 'Gaussian Link 1 present', fs.existsSync(l1), l1);
-      } catch (error) {
-        add('executable-exists', 'Executable exists', false, error.message);
-      }
-    }
-  }
-
-  const runsRoot = path.join(app.getPath('userData'), 'runs');
-  try {
-    await fsp.mkdir(runsRoot, { recursive: true });
-    await fsp.access(runsRoot, fs.constants.W_OK);
-    add('run-root', 'Run directory writable', true, runsRoot);
-  } catch (error) {
-    add('run-root', 'Run directory writable', false, error.message);
-  }
-
-  if (scratchDir) {
-    try {
-      await fsp.mkdir(scratchDir, { recursive: true });
-      await fsp.access(scratchDir, fs.constants.W_OK);
-      add('scratch', 'Scratch directory writable', true, scratchDir);
-    } catch (error) {
-      add('scratch', 'Scratch directory writable', false, error.message);
-    }
-  } else {
-    add('scratch', 'Scratch directory', true, 'Defaults to a per-run scratch folder.');
-  }
-
-  const cores = os.cpus().length;
-  const memoryGb = os.totalmem() / (1024 ** 3);
-  add('resources', 'Host resources detected', cores > 0,
-    `${cores} logical cores · ${memoryGb.toFixed(1)} GB RAM`);
-
-  return {
-    ok: checks.every((check) => check.ok),
-    dryRun,
-    checks,
-    host: {
-      platform: process.platform,
-      arch: process.arch,
-      release: os.release(),
-      cores,
-      memoryGb: Number(memoryGb.toFixed(1)),
-      userData: app.getPath('userData'),
-    },
-  };
 }
 
 async function openProject() {
@@ -349,7 +257,11 @@ app.whenReady().then(async () => {
   ipcMain.handle('cluster:import', () => importClusterResults());
   ipcMain.on('window:dirty', (_event, dirty) => { windowDirty = Boolean(dirty); });
   ipcMain.handle('gaussian:pick-executable', (_event, config) => chooseExecutable(config || {}));
-  ipcMain.handle('gaussian:preflight', (_event, config) => preflight(config));
+  ipcMain.handle('gaussian:preflight', (_event, config) => preflight(config || {}, {
+    platform: process.platform,
+    env: process.env,
+    userData: app.getPath('userData'),
+  }));
   ipcMain.handle('gaussian:run', (_event, payload) => runManager.start(payload));
   ipcMain.handle('gaussian:cancel', (_event, runId) => runManager.cancel(runId));
   ipcMain.handle('runs:list', () => runManager.list());

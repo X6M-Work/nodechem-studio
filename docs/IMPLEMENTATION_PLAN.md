@@ -5,8 +5,9 @@ what comes next and for how work is split between the the maintainer and the tes
 
 ## 1. Product target
 
-A Windows desktop application, installed on the tester's licensed machine, that lets a computational
-chemist build a Gaussian workflow as a graph and run it locally end to end.
+A desktop application for Windows, Linux and macOS, installed on a machine that has a licensed
+Gaussian 16 installation, that lets a computational chemist build a Gaussian workflow as a graph and
+run it locally end to end.
 
 Success at v1:
 
@@ -22,9 +23,9 @@ Success at v1:
 
 | Constraint | Consequence |
 | --- | --- |
-| Gaussian is licensed to a licensed Windows machine | The runner executes on that PC only. Never copy Gaussian, bundle it, or run a Windows licence under WSL. |
-| `g16.exe` is the console runner; `g16w.exe` is the GUI | Spawn `g16.exe` with an argument array, `windowsHide`, no shell. |
-| `GAUSS_EXEDIR` must point at the install | Set it per child process; also prepend the executable directory to `PATH`. |
+| Gaussian is licensed per machine and platform | The runner executes only against a local installation on the same operating system. Never copy Gaussian, bundle it, or move a licence between platforms — a Windows licence may not be used under WSL. |
+| `g16.exe` is the Windows console runner; `g16` is the Linux/macOS one. `g16w.exe` is the Windows GUI | Spawn the console runner with an argument array, `windowsHide`, no shell. Preflight accepts only the platform's console name and its Link 1 (`l1.exe`/`l1`). |
+| `GAUSS_EXEDIR` must point at the install | Resolve the selected executable (including a POSIX symlink) to its installation directory and set `GAUSS_EXEDIR` to that directory per child process; also prepend it to `PATH`. Never hard-code `C:\G16W`. |
 | Gaussian scratch uses a shared-memory scratch directory | Use a per-run scratch folder or a user-configured `GAUSS_SCRDIR`; never share a scratch directory between concurrent runs. |
 | Gaussian can return exit code 0 after an error termination | Parse the output for `Normal termination` / `Error termination`; gates decide status. |
 | A desktop app cannot survive sleep/reboot mid-run | Persist the queue and reconcile orphaned runs on startup; do not pretend a killed process completed. |
@@ -38,7 +39,7 @@ Success at v1:
 │  • window + native dialogs                                  │
 │  • IPC validation                                           │
 │  • RunManager: queue, run folders, child lifecycle          │
-│  • GaussianRunner: spawn g16.exe, tail .out, cancel tree    │
+│  • GaussianRunner: spawn g16/g16.exe, tail .out, cancel tree│
 └───────────────┬─────────────────────────────────────────────┘
                 │ contextBridge (preload.cjs)
 ┌───────────────▼─────────────────────────────────────────────┐
@@ -98,7 +99,7 @@ Success at v1:
 | Output parser | termination, SCF, optimization, frequencies, imaginary modes, the complete thermochemistry block, final correlated energy | `test/gaussianOutput.test.js` |
 | Thermochemistry corrections | full thermo block components, quasi-RRHO (Grimme, exposed cutoff) and 1 atm → 1 M standard state as separate toggleable lines | `test/thermochemistry.test.js` |
 | Gate evaluator | output completeness, SCF, optimization, frequency, imaginary count/magnitude, thermochemistry | same suite |
-| Local runner | spawn `g16.exe`, tail output, cancel tree, run folder, dry run | `test/runManager.test.js` |
+| Local runner | spawn the console runner (`g16.exe` on Windows, `g16` on Linux/macOS), platform preflight, tail output, cancel tree, run folder, dry run | `test/preflight.test.js`, `test/runManager.test.js` |
 | Durable queue | persisted queue, stable topological order, one task at a time, crash reconciliation, pause/resume/cancel-all | `test/queue.test.js`, `test/workflowGraph.test.js` |
 | Checkpoint staging | copies only along checkpoint edges; missing/empty `.chk` fails with a recorded reason; labelled fixture in dry runs | `test/checkpoint.test.js`, `test/queue.test.js` |
 | Control flow | safe condition expressions, one-branch release, loop retry/exhaustion, review never auto-passes | `test/controlFlow.test.js`, `test/queue.test.js` |
@@ -107,7 +108,7 @@ Success at v1:
 | Structure import | `.xyz`, `.mol`/`.sdf`, `.gjf`/`.com` with element/coordinate/parity validation; project-level geometry feeds every `.gjf` | `test/structureImport.test.js`, `test/projectSchema.test.js`, `test/gaussianInput.test.js` |
 | Dry run | labelled synthetic output, full parser/gate path | run console PASS evidence |
 | Persistence | native Open/Save, schema v1 validation, v0.1 migration, canonical save | `test/projectSchema.test.js` |
-| Packaging | electron-builder NSIS config; `npm run dist` produces `release/nodechem-studio-0.1.0-x64.exe`; CI workflow builds it on windows-latest | `.github/workflows/windows-package.yml`, `package.json` |
+| Packaging | electron-builder NSIS config; `npm run dist` produces `release/nodechem-studio-0.1.0-x64.exe`; CI workflow builds it on windows-latest. Linux AppImage target plus a `Linux package` CI workflow | `.github/workflows/windows-package.yml`, `.github/workflows/linux-package.yml`, `package.json` |
 
 ### Verified gaps
 
@@ -126,6 +127,9 @@ Success at v1:
   status.
 - No Windows/Gaussian smoke test yet. The UI and dry-run path are exercised on Linux; the
   main-process runner is covered by Vitest, but real Gaussian execution is untested.
+- No real Linux or macOS Gaussian run yet. Platform handling (executable and Link 1 names, POSIX
+  executable bit, symlink-resolved `GAUSS_EXEDIR`, scratch warnings) is covered by unit tests
+  against fake executables only.
 - The NSIS installer exists and CI builds it; it is unsigned and has not been installed on a
   clean Windows VM. No auto-update or crash reporting.
 
@@ -195,6 +199,8 @@ Success at v1:
 ### Phase 6 — Packaging and operations
 
 - Windows installer (electron-builder or Forge), code signing if a certificate exists.
+- Linux AppImage target (unsigned), built by CI on `ubuntu-latest`; macOS only where a signing
+  identity and a licensed macOS installation exist.
 - App version and commit in the About panel and every `run.json`.
 - Log rotation and a “open run folder” action.
 - Crash-safe queue reconciliation test.
@@ -218,15 +224,17 @@ and PR title. A task is not done until its acceptance evidence is in the PR.
 
 Priority: **GN-001 remains the only unverified gate** (real Windows + licensed Gaussian). GN-002
 through GN-008 are implemented and CI-tested on Linux; the Windows installer is built by the
-`Windows package` workflow but has not been installed on a clean VM.
+`Windows package` workflow but has not been installed on a clean VM. The Linux AppImage is built by
+the `Linux package` workflow but has not been installed on a clean Linux machine, and no real
+Linux/macOS Gaussian job has been run.
 
 ## 7. Risks and open questions
 
 | Risk | Mitigation / owner |
 | --- | --- |
 | Licence does not permit other users or remote access | Confirm with the licence holder before any real run. Record the answer in the project notes, not in code. |
-| `C:\G16W\g16.exe` is not the actual path | Preflight + Browse; never hard-code. GN-001 records the real path. |
-| Windows path spaces break scratch/chk | Prefer `C:\G16W\SCRATCH`; validate and warn on spaces. |
+| `C:\G16W\g16.exe` is not the actual path | Preflight + Browse; never hard-code any platform's path. Preflight validates the selected executable's own directory, resolving a POSIX symlink, and reports the `GAUSS_EXEDIR` it will set. GN-001 records the real Windows path. |
+| Scratch path spaces break scratch/chk | Prefer `C:\G16W\SCRATCH` or `/scratch/$USER`; preflight warns on spaces on every platform and on NFS/SMB-looking Linux/macOS paths, and never rewrites the path. |
 | Gaussian leaves child processes after cancel | `taskkill /T /F` on Windows; verify no `l1.exe`/`g16.exe` remains. |
 | Exit code 0 on error termination | Parser/gates are authoritative; add tests for error termination with code 0. |
 | Sleep/reboot mid-run | Persist queue; mark orphans interrupted; no fake completion. |

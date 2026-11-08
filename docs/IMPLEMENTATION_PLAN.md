@@ -1,7 +1,7 @@
 # NodeChem Studio — implementation plan
 
-Status: **v0.1 local runner slice implemented**. This document is the source of truth for
-what comes next and for how work is split between the host Hermes and Will's Hermes.
+Status: **v0.2 early preview implemented**. This document is the source of truth for
+what comes next and how the remaining work is sequenced.
 
 ## 1. Product target
 
@@ -151,7 +151,7 @@ Success at v1:
 - Graph editing and full inspector.
 - One selected calculation can be built and run.
 - Dry run and real run share the same parser/gate path.
-- Acceptance: on Will's Windows PC, a dry run passes; a small licensed job produces a run
+- Acceptance: on a licensed Windows machine, a dry run passes; a small licensed job produces a run
   folder with a parsed normal termination and gates.
 - **GN-001 is the gate for calling v0.1 done.**
 
@@ -217,7 +217,7 @@ Success at v1:
 - Crash-safe queue reconciliation test.
 - Acceptance: clean Windows VM installs, dry-runs, and runs a small job without Node installed.
 
-## 6. Task queue for Will's Hermes
+## 6. Task queue
 
 Each task is intentionally small enough for one branch and one review. Use the ID in the branch
 and PR title. A task is not done until its acceptance evidence is in the PR.
@@ -244,7 +244,7 @@ Linux/macOS Gaussian job has been run.
 
 | Risk | Mitigation / owner |
 | --- | --- |
-| Licence does not permit other users or remote access | Confirm with William before any real run. Record the answer in the project notes, not in code. |
+| Licence does not permit other users or remote access | Confirm with the licence holder before any real run. Record the answer in the project notes, not in code. |
 | `C:\G16W\g16.exe` is not the actual path | Preflight + Browse; never hard-code any platform's path. Preflight validates the selected executable's own directory, resolving a POSIX symlink, and reports the `GAUSS_EXEDIR` it will set. GN-001 records the real Windows path. |
 | Scratch path spaces break scratch/chk | Prefer `C:\G16W\SCRATCH` or `/scratch/$USER`; preflight warns on spaces on every platform and on NFS/SMB-looking Linux/macOS paths, and never rewrites the path. |
 | Gaussian leaves child processes after cancel | `taskkill /T /F` on Windows; verify no `l1.exe`/`g16.exe` remains. |
@@ -264,4 +264,4 @@ Linux/macOS Gaussian job has been run.
 - Checkpoint hand-offs are explicit and verified.
 - The UI remains node-first: parameters never force a permanent side form.
 - `npm test`, `npm run check`, and `npm run build` are green on the branch being reviewed.
-- Will's Hermes has signed GN-001 and the host has reviewed the diff.
+- GN-001 is signed off by the licence holder and the change has been reviewed.

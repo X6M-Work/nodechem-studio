@@ -3,7 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "NodeChem Studio — node-first desktop workbench for Gaussian 16 workflows",
+  "description": "NodeChem Studio — node-first desktop workbench for Gaussian 16 and xTB workflows (local runner, no telemetry)",
   "license": "Apache-2.0",
   "author": "xharl",
   "engines": {
@@ -88,5 +88,22 @@
       "createDesktopShortcut": true,
       "shortcutName": "NodeChem Studio"
     }
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xharl/nodechem-studio.git"
+  },
+  "homepage": "https://github.com/xharl/nodechem-studio#readme",
+  "bugs": {
+    "url": "https://github.com/xharl/nodechem-studio/issues"
+  },
+  "keywords": [
+    "computational-chemistry",
+    "gaussian",
+    "xtb",
+    "quantum-chemistry",
+    "electron",
+    "workflow",
+    "molecular-dynamics"
+  ]
 }

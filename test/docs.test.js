@@ -116,8 +116,10 @@ describe('public documentation — copy consistency', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('states plainly that the repository is private during the tester build', () => {
-    expect(read('README.md')).toContain('private during the tester build');
+  it('states plainly what the release is, and is not', () => {
+    const readme = read('README.md');
+    expect(readme).toContain('early preview');
+    expect(readme).toContain('What has *not* been proven is a real run');
   });
 
   it('ships no network client in the app sources', () => {

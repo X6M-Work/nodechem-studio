@@ -1,0 +1,85 @@
+name: Bug report
+description: Something behaved differently from what the documentation says
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: check `docs/guide/troubleshooting.md` — preflight failures, validation
+        messages and queue states are covered there.
+
+        Do **not** paste licence keys, `.env` contents, or Gaussian licence files. If you are
+        unsure whether a run folder is shareable, remove the output and attach `run.json` only.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: From the About dialog, or the installer filename.
+      placeholder: 0.2.0
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Windows 10/11 x64
+        - Linux x64 (AppImage)
+        - Linux (from source)
+        - macOS (from source)
+    validations:
+      required: true
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Engine
+      options:
+        - Dry run (fixture)
+        - Gaussian 16
+        - xTB
+        - Not engine-specific (UI, project file, export)
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open ...
+        2. Click ...
+        3. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: Paste the exact console text or error message, not a paraphrase.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: |
+        Attach the zipped run folder (`%APPDATA%\nodechem-studio\runs\<runId>` on Windows,
+        `~/.config/nodechem-studio/runs/<runId>` on Linux) or the `.ncs` project that reproduces it.
+        If the problem is an import or export, attach the folder that was rejected.
+      placeholder: Drag the zip here, or say that you cannot share it and why.
+    validations:
+      required: false
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmations
+      options:
+        - label: I have not included keys, tokens or Gaussian licence files.
+          required: true
+        - label: This is not a security report (those go through SECURITY.md).
+          required: true

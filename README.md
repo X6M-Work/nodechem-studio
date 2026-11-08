@@ -16,7 +16,7 @@ installed on. Without either, the dry run exercises the whole pipeline on a labe
 
 ![NodeChem Studio: node graph with the Reactant frequency inspector open](docs/images/studio-overview.png)
 
-**Status: v0.2.0 — tester build.** The graph, the durable workflow queue, the dry-run path, the
+**Status: v0.2.0 — early preview.** The graph, the durable workflow queue, the dry-run path, the
 project format, the results surface, validity checks, the methods paragraph, run-bundle export, the
 structure viewer and both engines' input builders and parsers are implemented and covered by tests.
 What has *not* been proven is a real run: no licensed Gaussian job and no real xTB job has been
@@ -155,7 +155,19 @@ Gaussian, which is licensed separately by Gaussian, Inc.
 
 Full detail: [Privacy and licensing](docs/guide/privacy-and-licensing.md).
 
-## Feedback
+## Contributing
 
-The repository is private during the tester build. Send a report with the run folder
-(`%APPDATA%\nodechem-studio\runs\<runId>`) so the exact input, output and record travel together.
+Bug reports, corrected documentation and pull requests are welcome. Read
+[`CONTRIBUTING.md`](CONTRIBUTING.md) first — it covers the build, the test gate and the rules that
+keep the fixture/real-run distinction intact. Security reports go through
+[`SECURITY.md`](SECURITY.md), not a public issue.
+
+When you report a run problem, attach the run folder
+(`%APPDATA%\nodechem-studio\runs\<runId>` on Windows, `~/.config/nodechem-studio/runs/<runId>` on
+Linux) zipped, minus anything you are not licensed to share. The exact input, output and `run.json`
+are what make a defect reproducible.
+
+## Licence
+
+[Apache License 2.0](LICENSE). Gaussian 16 is licensed separately by Gaussian, Inc.; nothing here
+grants rights to it.

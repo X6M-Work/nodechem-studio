@@ -1,0 +1,50 @@
+name: Feature request
+description: A capability the app does not have
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The app has deliberately small surface area: local execution only, one engine process at a
+        time, no telemetry. Requests that need a network service or a bundled engine will be declined,
+        however useful they would be.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you unable to do today? Describe the workflow, not the widget.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do instead today
+      description: Manual step, another tool, a script — this is usually the most useful part.
+    validations:
+      required: false
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Engine this concerns
+      options:
+        - Both engines
+        - Gaussian 16 only
+        - xTB only
+        - Neither (UI, project format, export)
+    validations:
+      required: true
+  - type: checkboxes
+    id: invariants
+    attributes:
+      label: Does this keep the invariants?
+      options:
+        - label: It works offline (no remote execution, no cloud API, no telemetry).
+          required: true
+        - label: It does not require bundling Gaussian or xTB.
+          required: true

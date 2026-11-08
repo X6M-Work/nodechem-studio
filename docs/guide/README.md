@@ -55,8 +55,11 @@ Three things, because a wrong claim in a chemistry tool is expensive:
 
 ## Where to report a problem
 
-The repository is private while the tester build is being evaluated. Send the run folder with the
-report:
+Report bugs and documentation errors through the repository's issue tracker; read
+[`CONTRIBUTING.md`](../../CONTRIBUTING.md) first. Security problems go through
+[`SECURITY.md`](../../SECURITY.md) instead of a public issue.
+
+Attach the run folder, zipped:
 
 ```
 %APPDATA%\nodechem-studio\runs\<runId>        Windows
@@ -64,4 +67,4 @@ report:
 ```
 
 It contains the exact input, the raw output, `run.json` and the gate evidence — enough to reproduce
-a defect without guessing.
+a defect without guessing. Remove anything you are not licensed to share.

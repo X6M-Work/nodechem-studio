@@ -1,7 +1,7 @@
 # NodeChem Studio — implementation plan
 
-Status: **v0.1 local runner slice implemented**. This document is the source of truth for
-what comes next and for how work is split between the the maintainer and the tester's environment.
+Status: **v0.2 early preview implemented**. This document is the source of truth for
+what comes next and how the remaining work is sequenced.
 
 ## 1. Product target
 
@@ -217,7 +217,7 @@ Success at v1:
 - Crash-safe queue reconciliation test.
 - Acceptance: clean Windows VM installs, dry-runs, and runs a small job without Node installed.
 
-## 6. Task queue for the tester's environment
+## 6. Task queue
 
 Each task is intentionally small enough for one branch and one review. Use the ID in the branch
 and PR title. A task is not done until its acceptance evidence is in the PR.
@@ -264,4 +264,4 @@ Linux/macOS Gaussian job has been run.
 - Checkpoint hand-offs are explicit and verified.
 - The UI remains node-first: parameters never force a permanent side form.
 - `npm test`, `npm run check`, and `npm run build` are green on the branch being reviewed.
-- the tester's environment has signed GN-001 and the host has reviewed the diff.
+- GN-001 is signed off by the licence holder and the change has been reviewed.

@@ -3,6 +3,7 @@ dist/
 release/
 runs/
 *.log
+electron/build-info.json
 .DS_Store
 Thumbs.db
 .env

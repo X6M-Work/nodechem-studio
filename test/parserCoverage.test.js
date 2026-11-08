@@ -180,6 +180,23 @@ describe('per-step SCF records and optimisation convergence', () => {
 describe('frequency block detail', () => {
   const block = parsed.links[0].frequencyBlocks[0];
 
+  it('marks non-finite frequency tokens invalid and fails the frequency gates', () => {
+    const bad = parseGaussianOutput([
+      ' FIXTURE OUTPUT — synthetic, not a real calculation',
+      ' SCF Done:  E(RB3LYP) =  -76.0     A.U. after    1 cycles',
+      ' Frequencies --  NaN Inf -0.0000 100.0',
+      ' Normal termination of Gaussian 16',
+    ].join('\n'));
+    expect(bad.frequencies.invalid).toBe(true);
+    expect(bad.frequencies.invalidTokens).toEqual(['NaN', 'Inf']);
+    expect(bad.frequencies.values).toHaveLength(2);
+    expect(bad.frequencies.values[0]).toBeCloseTo(0, 9);
+    expect(bad.frequencies.values[1]).toBe(100);
+    const gates = evaluateGates(bad, { expectedImaginary: 0, requireFrequency: true });
+    expect(gates.gates.find((gate) => gate.name === 'Imaginary mode count')?.result).toBe('fail');
+    expect(gates.gates.find((gate) => gate.name === 'Frequency record')?.result).toBe('fail');
+  });
+
   it('keeps reduced masses, force constants and IR intensities aligned with the modes', () => {
     expect(block.reducedMasses).toEqual([1.0823, 1.0874, 1.0812, 1.081]);
     expect(block.forceConstants).toEqual([0.2374, 1.6011, 8.4885, 9.0011]);

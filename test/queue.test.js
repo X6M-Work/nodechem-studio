@@ -156,6 +156,50 @@ describe('QueueManager — DAG execution', () => {
     expect(await fsp.readdir(path.join(queuesRoot, started.id, 'inputs'))).toHaveLength(4);
   });
 
+  it('rejects a second queue while one is active', async () => {
+    const { exe, queueManager } = await makeStack({ behaviour: () => ({ delay: 200 }) });
+    const tasks = [task('a')];
+    const started = await queueManager.start({ projectName: 'first', tasks, options: queueOptions(exe) });
+    await expect(queueManager.start({ projectName: 'second', tasks, options: queueOptions(exe) }))
+      .rejects.toThrow(/still running/);
+    await waitFor(async () => (await queueManager.get(started.id)).status === 'completed', { label: 'first completion' });
+  });
+
+  it('serializes concurrent start calls so a double click cannot create two queues', async () => {
+    const { exe, queueManager } = await makeStack({ behaviour: () => ({ delay: 200 }) });
+    const tasks = [task('a')];
+    const [first, second] = await Promise.allSettled([
+      queueManager.start({ projectName: 'first', tasks, options: queueOptions(exe) }),
+      queueManager.start({ projectName: 'second', tasks, options: queueOptions(exe) }),
+    ]);
+    expect([first.status, second.status].sort()).toEqual(['fulfilled', 'rejected']);
+    const started = first.status === 'fulfilled' ? first.value : second.value;
+    await waitFor(async () => (await queueManager.get(started.id)).status === 'completed', { label: 'single queue completion' });
+  });
+
+  it('persists validity context in queue.json so a restart can evaluate the same checks', async () => {
+    const { exe, queueManager, queuesRoot, runManager } = await makeStack();
+    const validity = {
+      settings: { jobType: 'Freq', method: 'B3LYP', basis: 'def2-SVP' },
+      molecule: { charge: 1, multiplicity: 2, coords: [{ element: 'O', x: 0, y: 0, z: 0 }] },
+      upstream: null,
+    };
+    const started = await queueManager.start({
+      projectName: 'validity',
+      tasks: [task('a', { validity })],
+      options: queueOptions(exe),
+    });
+    await waitFor(async () => (await queueManager.get(started.id)).status === 'completed', { label: 'validity completion' });
+    const persisted = JSON.parse(await fsp.readFile(path.join(queuesRoot, started.id, 'queue.json'), 'utf8'));
+    expect(persisted.tasks[0].validity).toMatchObject(validity);
+    expect(persisted.tasks[0].inputText).toBeUndefined();
+
+    const reloaded = new QueueManager({ queuesRoot, runManager, emit: () => {} });
+    await reloaded.init();
+    expect(reloaded.queues.get(started.id).tasks[0].validity).toMatchObject(validity);
+    reloaded.dispose();
+  });
+
   it('respects a diamond join', async () => {
     const { exe, events, queueManager } = await makeStack();
     const tasks = [task('a'), task('b'), task('c'), task('d')];

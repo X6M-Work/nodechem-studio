@@ -14,7 +14,7 @@
     "dev": "concurrently -k -s first \"npm:dev:renderer\" \"npm:dev:electron\"",
     "dev:renderer": "vite --host 127.0.0.1",
     "dev:electron": "wait-on http://127.0.0.1:5173 && electron . --dev",
-    "build": "vite build",
+    "build": "node scripts/stamp-build-info.mjs && vite build",
     "start": "electron .",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -78,7 +78,8 @@
         }
       ],
       "category": "Science",
-      "artifactName": "${name}-${version}-${arch}.${ext}"
+      "artifactName": "${name}-${version}-${arch}.${ext}",
+      "executableArgs": []
     },
     "nsis": {
       "oneClick": false,

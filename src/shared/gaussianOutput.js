@@ -687,12 +687,13 @@ function splitSteps(lines, offset) {
 
 /* ── Frequencies ─────────────────────────────────────────────── */
 
-function numbersIn(text) {
+function numbersIn(text, invalidSink = null) {
   const values = [];
   for (const token of String(text).split(/\s+/)) {
     if (token === '') continue;
     const value = toNumber(token);
     if (value !== null) values.push(value);
+    else if (invalidSink) invalidSink.push(token);
   }
   return values;
 }
@@ -705,6 +706,8 @@ function emptyFrequencySummary() {
     minImaginary: null,
     values: [],
     lowest: [],
+    invalid: false,
+    invalidTokens: [],
   };
 }
 
@@ -725,6 +728,7 @@ function parseFrequencyBlocks(lines, offset) {
       index: blocks.length,
       line: offset + index + 1,
       values: [],
+      invalidTokens: [],
       reducedMasses: [],
       forceConstants: [],
       irIntensities: [],
@@ -744,7 +748,7 @@ function parseFrequencyBlocks(lines, offset) {
         if (between.some((text) => FREQUENCY_BREAK.test(text))) startsNew = true;
       }
       if (startsNew) startBlock(index);
-      currentBlock.values.push(...numbersIn(frequency[1]));
+      currentBlock.values.push(...numbersIn(frequency[1], currentBlock.invalidTokens));
       lastFrequencyIndex = index;
       continue;
     }
@@ -780,6 +784,7 @@ function parseFrequencyBlocks(lines, offset) {
   for (const block of blocks) {
     const imaginaryValues = block.values.filter((value) => value < 0);
     block.count = block.values.length;
+    block.invalid = block.invalidTokens.length > 0;
     block.imaginaryCount = imaginaryValues.length;
     block.imaginaryValues = imaginaryValues;
     block.minImaginary = imaginaryValues.length ? Math.min(...imaginaryValues) : null;
@@ -807,6 +812,8 @@ function summarizeFrequencies(blocks) {
     minImaginary: block.minImaginary,
     values: block.values,
     lowest: block.lowest,
+    invalid: block.invalid,
+    invalidTokens: block.invalidTokens.slice(0, 20),
   };
 }
 
@@ -1105,12 +1112,16 @@ export function evaluateGates(parsed, {
   }
 
   if (expectedImaginary !== null) {
-    const countPass = Number.isInteger(expectedImaginary) && parsed.frequencies.count > 0
-      ? parsed.frequencies.imaginaryCount === expectedImaginary
-      : null;
+    const invalid = parsed.frequencies.invalid === true;
+    const countPass = invalid ? false
+      : Number.isInteger(expectedImaginary) && parsed.frequencies.count > 0
+        ? parsed.frequencies.imaginaryCount === expectedImaginary
+        : null;
     add('Imaginary mode count', true,
       countPass === true ? 'pass' : countPass === false ? 'fail' : 'unknown',
-      `expected ${expectedImaginary}, found ${parsed.frequencies.imaginaryCount}`);
+      invalid
+        ? `non-finite frequency token(s): ${parsed.frequencies.invalidTokens?.join(' ') || 'invalid data'}`
+        : `expected ${expectedImaginary}, found ${parsed.frequencies.imaginaryCount}`);
 
     if (expectedImaginary > 0) {
       const floor = Number.isFinite(Number(minMagnitude)) ? Number(minMagnitude) : 0;
@@ -1123,9 +1134,12 @@ export function evaluateGates(parsed, {
   }
 
   if (requireFrequency) {
+    const invalid = parsed.frequencies.invalid === true;
     add('Frequency record', true,
-      parsed.frequencies.count > 0 ? 'pass' : 'unknown',
-      `${parsed.frequencies.count} modes`);
+      invalid ? 'fail' : parsed.frequencies.count > 0 ? 'pass' : 'unknown',
+      invalid
+        ? `non-finite frequency token(s): ${parsed.frequencies.invalidTokens?.join(' ') || 'invalid data'}`
+        : `${parsed.frequencies.count} modes`);
   }
 
   if (requireThermochemistry) {

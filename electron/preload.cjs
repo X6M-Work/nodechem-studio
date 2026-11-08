@@ -3,6 +3,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('desktop', {
   getInfo: () => ipcRenderer.invoke('app:info'),
   openProject: () => ipcRenderer.invoke('project:open'),
+  startupProject: () => ipcRenderer.invoke('project:startup'),
+  openProjectPath: (filePath) => ipcRenderer.invoke('project:open-path', filePath),
   saveProject: (project, filePath) => ipcRenderer.invoke('project:save', project, filePath),
   exportInput: (payload) => ipcRenderer.invoke('input:export', payload),
   exportCluster: (payload) => ipcRenderer.invoke('cluster:export', payload),
@@ -30,5 +32,10 @@ contextBridge.exposeInMainWorld('desktop', {
     const handler = (_event, payload) => callback(payload);
     ipcRenderer.on('queue:event', handler);
     return () => ipcRenderer.removeListener('queue:event', handler);
+  },
+  onOpenProjectPath: (callback) => {
+    const handler = (_event, filePath) => callback(filePath);
+    ipcRenderer.on('project:open-path', handler);
+    return () => ipcRenderer.removeListener('project:open-path', handler);
   },
 });

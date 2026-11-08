@@ -124,6 +124,88 @@ export function xtbOptLevelFor(settings = {}) {
 }
 
 /**
+ * Dispersion is part of each xTB parameterisation, not a route keyword the
+ * user can switch on or off. Recording which model is built into the selected
+ * Hamiltonian keeps the manifest from claiming a Gaussian-style `GD3BJ`.
+ */
+export const XTB_DISPERSION = Object.freeze({
+  gfn0: 'D4 (built in)',
+  gfn1: 'D3(BJ) (built in)',
+  gfn2: 'D4 (built in)',
+  gfnff: 'force field (built in)',
+});
+
+function argvValue(argv, flag) {
+  if (!Array.isArray(argv)) return null;
+  const index = argv.indexOf(flag);
+  if (index === -1 || argv[index + 1] === undefined) return null;
+  const value = oneLine(argv[index + 1]);
+  return value && !value.startsWith('--') ? value : null;
+}
+
+function hamiltonianFromArgv(argv) {
+  if (!Array.isArray(argv)) return null;
+  if (argv.includes('--gfnff')) return 'gfnff';
+  const value = argvValue(argv, '--gfn');
+  if (!value) return null;
+  const id = `gfn${value.toLowerCase()}`;
+  return XTB_METHODS.some((method) => method.id === id) ? id : null;
+}
+
+function jobTypeFromArgv(argv) {
+  if (!Array.isArray(argv)) return null;
+  if (argv.includes('--ohess')) return 'Opt Freq';
+  if (argv.includes('--opt')) return 'Opt';
+  if (argv.includes('--hess')) return 'Freq';
+  return 'SP';
+}
+
+function solvationFromArgv(argv) {
+  if (!Array.isArray(argv)) return null;
+  for (const [flag, model] of [['--alpb', 'ALPB'], ['--gbsa', 'GBSA']]) {
+    const solvent = argvValue(argv, flag);
+    if (solvent) return `${model}/${solvent}`;
+  }
+  return null;
+}
+
+/**
+ * The provenance method block for an xTB run.
+ *
+ * xTB has no Gaussian route: the Hamiltonian, job flag and solvation model are
+ * the argv, and dispersion is part of the parameterisation. When the runner
+ * supplies the argv that actually ran, the block is read back from it so the
+ * manifest cannot drift from the invocation; `settings` is only the fallback
+ * for callers that have not built an argv yet.
+ */
+export function xtbMethodBlock(settings = {}, { argv = null, jobType = null } = {}) {
+  const args = Array.isArray(argv) && argv.length > 0 ? argv.map(String) : null;
+  const hamiltonian = hamiltonianFromArgv(args) || xtbMethodFor(settings);
+  const type = jobTypeFromArgv(args) || oneLine(jobType, '') || oneLine(settings.jobType, 'SP');
+  const isOpt = type === 'Opt' || type === 'Opt Freq';
+  const optLevel = isOpt
+    ? (args ? argvValue(args, type === 'Opt' ? '--opt' : '--ohess') : xtbOptLevelFor(settings))
+    : null;
+
+  let solvation = null;
+  if (args) {
+    solvation = solvationFromArgv(args);
+  } else if (settings.solvation) {
+    const model = String(settings.solvationModel || 'ALPB').toUpperCase();
+    const solventLabel = oneLine(settings.solvent, 'Water');
+    solvation = `${model}/${XTB_SOLVENTS[model]?.[solventLabel] || solventLabel}`;
+  }
+
+  return {
+    hamiltonian,
+    optLevel,
+    dispersion: XTB_DISPERSION[hamiltonian] || null,
+    solvation,
+    argv: args ? [...args] : null,
+  };
+}
+
+/**
  * Build one xTB input: an XYZ file plus the argv that consumes it.
  *
  * `method`/`basis` from the Gaussian settings are ignored — xTB selects its

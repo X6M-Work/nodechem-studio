@@ -83,4 +83,45 @@ describe('stageCheckpoint', () => {
     await expect(stageCheckpoint({ checkpoint: 'r_opt.chk', targetDir: target, dryRun: false }))
       .rejects.toThrow(/no upstream run folder/);
   });
+
+  it('copies an xTB restart artifact when the engine declares it', async () => {
+    const source = await tempDir();
+    const target = await tempDir();
+    await fsp.writeFile(path.join(source, 'xtbrestart'), 'xTB restart data', 'utf8');
+
+    const result = await stageCheckpoint({
+      sourceRunDir: source,
+      checkpoint: 'xtbrestart',
+      sourceRunId: 'upstream-run',
+      targetDir: target,
+      engine: 'xtb',
+    });
+
+    expect(result).toMatchObject({ file: 'xtbrestart', kind: 'copy', sourceRunId: 'upstream-run' });
+    expect(await fsp.readFile(path.join(target, 'xtbrestart'), 'utf8')).toBe('xTB restart data');
+  });
+
+  it('labels a dry-run xTB fixture as a restart file, not a Gaussian checkpoint', async () => {
+    const target = await tempDir();
+    const result = await stageCheckpoint({
+      sourceRunDir: '',
+      checkpoint: 'xtbrestart',
+      targetDir: target,
+      dryRun: true,
+      engine: 'xtb',
+    });
+    expect(result.kind).toBe('fixture');
+    const text = await fsp.readFile(path.join(target, 'xtbrestart'), 'utf8');
+    expect(text.startsWith('FIXTURE CHECKPOINT')).toBe(true);
+    expect(text).toContain('not an xTB restart file');
+    expect(text).not.toContain('Gaussian checkpoint');
+  });
+
+  it('still refuses an unsafe xTB artifact name', async () => {
+    const target = await tempDir();
+    for (const name of ['../xtbrestart', 'xtb restart', '..', '.', '']) {
+      await expect(stageCheckpoint({ checkpoint: name, targetDir: target, dryRun: true, engine: 'xtb' }))
+        .rejects.toThrow(/safe restart-artifact basename/);
+    }
+  });
 });

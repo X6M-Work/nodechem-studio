@@ -33,8 +33,23 @@ function shortHash(value) {
   return typeof value === 'string' && value ? `${value.slice(0, 12)}…` : 'none';
 }
 
+function hamiltonianText(value) {
+  const id = String(value ?? '').trim().toLowerCase();
+  if (!id) return UNKNOWN;
+  if (id === 'gfnff') return 'GFN-FF';
+  const match = /^gfn(\d+)$/.exec(id);
+  return match ? `GFN${match[1]}-xTB` : String(value);
+}
+
 function methodText(method) {
   if (!method) return UNKNOWN;
+  // xTB records a Hamiltonian and its argv, not a Gaussian route. Keep the two
+  // vocabularies separate so an xTB run can never be described as a DFT route.
+  if (method.hamiltonian) {
+    const opt = method.optLevel ? ` · opt ${method.optLevel}` : '';
+    const solvent = method.solvation ? ` · ${method.solvation}` : '';
+    return `${hamiltonianText(method.hamiltonian)}${opt}${solvent}`;
+  }
   const solvent = method.solvation ? ` solvation ${method.solvation}` : '';
   const grid = method.grid ? ` grid ${method.grid}` : '';
   const scf = method.scf ? ` SCF ${method.scf}` : '';

@@ -347,7 +347,13 @@ function levelSentence(record, engine) {
 
 function dispersionSentence(record, engine) {
   if (engine === 'xtb') {
-    return 'No separate empirical dispersion keyword is recorded in run.json; any dispersion treatment belongs to the xTB Hamiltonian and is not itemised in the record.';
+    const method = methodOf(record);
+    // Only an engine-owned xTB block may describe xTB dispersion. A stale
+    // Gaussian-shaped block on an old record must stay ignored.
+    const value = method && clean(method.hamiltonian) ? clean(method.dispersion) : '';
+    return value
+      ? `Dispersion is built into the xTB parameterisation (${value}); no separate empirical dispersion keyword was applied.`
+      : 'No separate empirical dispersion keyword is recorded in run.json; any dispersion treatment belongs to the xTB Hamiltonian and is not itemised in the record.';
   }
   const method = methodOf(record);
   if (!method) return `The dispersion treatment is ${NOT_RECORDED} because no method block is recorded.`;

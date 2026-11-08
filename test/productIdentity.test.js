@@ -91,10 +91,12 @@ describe('packaged product identity', () => {
   });
 
   it('builds the Windows installer name from the package name, not the display name', () => {
-    // ${productName} would emit "NodeChem Studio-0.1.0-x64.exe"; the artifact must
-    // stay space-free and predictable for CI uploads and checksums.
+    // ${productName} would emit "NodeChem Studio-<version>-x64.exe"; the artifact
+    // must stay space-free and predictable for CI uploads and checksums. The
+    // expected name is rendered from package.json, so a release bump is a
+    // version change, not a test edit.
     expect(pkg.build.win.artifactName).toContain('${name}');
-    expect(INSTALLER).toBe('nodechem-studio-0.1.0-x64.exe');
+    expect(INSTALLER).toBe(`nodechem-studio-${pkg.version}-x64.exe`);
   });
 
   it('documents the same installer filename that the build produces', () => {
@@ -123,8 +125,11 @@ describe('packaged product identity', () => {
 
   it('names the source hand-off bundle after the product', () => {
     expect(read('scripts/package-bundle.sh')).toContain('NAME="nodechem-studio-v${VERSION}"');
-    expect(read('HANDOFF.md')).toContain('nodechem-studio-v0.1.0.tar.gz');
-    expect(read('docs/COLLABORATION.md')).toContain('nodechem-studio-v0.1.0.tar.gz');
+    // Version comes from package.json so a release bump cannot leave the docs
+    // pointing at a bundle name the script no longer produces.
+    const bundle = `nodechem-studio-v${pkg.version}.tar.gz`;
+    expect(read('HANDOFF.md')).toContain(bundle);
+    expect(read('docs/COLLABORATION.md')).toContain(bundle);
   });
 
   it('names the Windows CI artifact after the product', () => {

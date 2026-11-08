@@ -6,8 +6,9 @@ and the contextual inspector exposes the full job parameter set without hiding t
 
 ![NodeChem Studio: node graph with the Reactant frequency inspector open](docs/images/studio-overview.png)
 
-**Status: v0.1 — local runner slice.** The graph, durable workflow queue, dry-run path and project
-format are implemented and covered by tests. Real Gaussian execution requires a licensed Gaussian 16
+**Status: v0.2 — tester build.** The graph, durable workflow queue, dry-run path, project format,
+results surface, validity checks, methods paragraph, run-bundle export and the canvas structure
+viewer are implemented and covered by tests. Real Gaussian execution requires a licensed Gaussian 16
 installation on the same machine: the Windows console runner is `g16.exe`, the Linux and macOS
 console runner is `g16`. Real xTB execution needs no licence, only an `xtb` executable and its
 parameter files; select xTB as the project engine and follow [Engines](#engines). The Windows smoke
@@ -414,7 +415,7 @@ npm test
 npm run dist
 ```
 
-`release\nodechem-studio-0.1.0-x64.exe` is a per-user NSIS installer; the target machine does
+`release\nodechem-studio-0.2.0-x64.exe` is a per-user NSIS installer; the target machine does
 not need Node. The build is unsigned, so SmartScreen warns on first launch.
 
 The **Windows package** GitHub Actions workflow builds the same installer on `windows-latest`
@@ -431,7 +432,7 @@ npm test
 npm run dist:linux
 ```
 
-`release/nodechem-studio-0.1.0-x86_64.AppImage` is a portable, unsigned AppImage; it bundles
+`release/nodechem-studio-0.2.0-x86_64.AppImage` is a portable, unsigned AppImage; it bundles
 Electron and needs no Node on the target machine. It is not a Gaussian installer and contains no
 Gaussian binaries or licence files — it drives an installation the user already has on that Linux
 machine.

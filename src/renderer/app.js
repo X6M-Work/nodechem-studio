@@ -871,7 +871,9 @@ function calcInspector(node) {
       <select class="select" data-node-field="memoryUnit">${MEMORY_UNITS.map(([value, label]) => `<option value="${value}"${s.memoryUnit === value ? ' selected' : ''}>${label}</option>`).join('')}</select>
     </div></div>`,
     inputField('Cores (nproc)', 'nproc', s.nproc, { type: 'number', min: 1, max: 256 }),
-    inputField('Checkpoint file', 'checkpoint', s.checkpoint || chkName(node.id), { full: true }),
+    isXtb
+      ? '<div class="field full"><span class="inspector-note">xTB writes <code>xtbrestart</code> in the run folder; a checkpoint hand-off copies that file.</span></div>'
+      : inputField('Checkpoint file', 'checkpoint', s.checkpoint || chkName(node.id), { full: true }),
   ].join(''));
 
   const methodGroup = group('Method & basis', `${s.method}/${s.basis}`, true, [
@@ -936,9 +938,12 @@ function calcInspector(node) {
       <option value="">None</option>
       ${ins.map((edge) => {
         const source = nodeById(edge.from);
-        return source ? `<option value="${source.id}"${node.checkpointFrom === source.id ? ' selected' : ''}>${esc(source.title)}${source.settings?.checkpoint ? ` · ${esc(source.settings.checkpoint)}` : ''}</option>` : '';
+        const artifact = source && source.type === 'calc' ? checkpointNameFor(source) : '';
+        return source ? `<option value="${source.id}"${node.checkpointFrom === source.id ? ' selected' : ''}>${esc(source.title)}${artifact ? ` · ${esc(artifact)}` : ''}</option>` : '';
       }).join('')}
-    </select><span class="inspector-note" style="display:block;margin-top:4px">Adds <code>%OldChk</code>, <code>Geom=Checkpoint</code> and <code>Guess=Read</code> to this task.</span></div>` : '',
+    </select><span class="inspector-note" style="display:block;margin-top:4px">${isXtb
+    ? 'Copies <code>xtbrestart</code> into this task’s run folder; xTB reads it automatically.'
+    : 'Adds <code>%OldChk</code>, <code>Geom=Checkpoint</code> and <code>Guess=Read</code> to this task.'}</span></div>` : '',
   ].join(''));
 
   const outputGroup = group('Output', node.output ? 'parsed' : 'none', true, [
@@ -1122,8 +1127,11 @@ function renderEdgeInspector(edge) {
   const typeLabel = edge.type === 'checkpoint' ? 'Checkpoint hand-off'
     : edge.type === 'branch' ? `${edge.branch === 'true' ? 'TRUE' : 'FALSE'} branch`
       : edge.type === 'loop' ? 'Retry loop' : 'Dependency';
+  const isXtb = engineOrDefault(state.project?.defaults?.engine).id === 'xtb';
   const checkpointLines = edge.type === 'checkpoint'
-    ? `<div class="code-block" style="margin-bottom:10px"><div>%OldChk=${esc(chkName(from.id))}</div><div>Geom=Checkpoint</div><div>Guess=Read</div></div>`
+    ? (isXtb
+      ? '<div class="code-block" style="margin-bottom:10px"><div>xtbrestart</div><div>xTB reads it automatically from the working directory</div></div>'
+      : `<div class="code-block" style="margin-bottom:10px"><div>%OldChk=${esc(chkName(from.id))}</div><div>Geom=Checkpoint</div><div>Guess=Read</div></div>`)
     : '';
   let callout = '';
   if (edge.type === 'checkpoint') {
@@ -1137,7 +1145,7 @@ function renderEdgeInspector(edge) {
   }
   const checkpointToggle = edge.type === 'checkpoint'
     ? '<button type="button" class="btn small" data-action="clear-checkpoint">Clear hand-off</button>'
-    : from.settings?.checkpoint
+    : (isXtb || from.settings?.checkpoint)
       ? '<button type="button" class="btn small" data-action="set-checkpoint">Pass checkpoint</button>'
       : '';
 
@@ -1429,7 +1437,8 @@ function setCheckpoint(edgeIdValue, enabled) {
   if (!edge) return;
   if (enabled) {
     const from = nodeById(edge.from);
-    if (!from?.settings?.checkpoint) {
+    const engine = engineOrDefault(state.project?.defaults?.engine);
+    if (!from || (engine.id !== 'xtb' && !from.settings?.checkpoint)) {
       toast('The source block has no checkpoint file.');
       return;
     }
@@ -2009,7 +2018,11 @@ function gatesForNode(node) {
 }
 
 function checkpointNameFor(node) {
-  return node?.settings?.checkpoint || `${safeBase(node?.id || 'task')}.chk`;
+  const engine = engineOrDefault(state.project?.defaults?.engine);
+  return engine.checkpointArtifact({
+    checkpointName: node?.settings?.checkpoint || '',
+    nodeId: safeBase(node?.id || 'task'),
+  });
 }
 
 /**

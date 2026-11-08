@@ -5,9 +5,11 @@ import path from 'node:path';
 import { RunManager } from '../electron/runner/runManager.js';
 import { QueueManager } from '../electron/runner/queue.js';
 import { makeFixtureOutput } from '../src/shared/fixtureOutput.js';
+import { makeXtbFixtureOutput } from '../src/shared/engines/xtb.js';
 
 const roots = [];
 const INPUT = '#p B3LYP/6-31G(d) SP\n\ntest\n\n0 1\nO 0.000000 0.000000 0.117300\n';
+const XTB_INPUT = '3\nxTB task\nO 0.000000 0.000000 0.117300\nH 0.000000 0.757200 -0.469200\nH 0.000000 -0.757200 -0.469200\n';
 
 function task(nodeId, overrides = {}) {
   return {
@@ -513,6 +515,121 @@ describe('QueueManager — checkpoint staging', () => {
     const record = JSON.parse(await fsp.readFile(path.join(b.runDir, 'run.json'), 'utf8'));
     expect(record.checkpointHandoff).toBeNull();
     await expect(fsp.access(path.join(b.runDir, 'a.chk'))).rejects.toThrow();
+  });
+
+  const xtbTask = (nodeId, overrides = {}) => task(nodeId, {
+    engine: 'xtb',
+    kind: 'Opt',
+    inputName: `${nodeId}.xyz`,
+    outputName: `${nodeId}.out`,
+    inputText: XTB_INPUT,
+    argv: [`${nodeId}.xyz`, '--gfn', '2', '--opt', 'normal'],
+    settings: { jobType: 'Opt', xtbMethod: 'gfn2', xtbOptLevel: 'normal' },
+    ...overrides,
+  });
+  const xtbBehaviour = (outputName) => ({
+    output: makeXtbFixtureOutput(),
+    ...(outputName === 'a.out' ? { checkpoint: 'xtbrestart', checkpointBytes: 'xTB restart bytes' } : {}),
+  });
+
+  it('stages the engine-declared xTB restart artifact for a queued edge', async () => {
+    const { exe, queueManager, queuesRoot } = await makeStack({ behaviour: xtbBehaviour });
+    // The task payload still carries the pre-#40 `.chk` UI names on purpose.
+    const tasks = [
+      xtbTask('a', { checkpointName: 'a.chk' }),
+      xtbTask('b', {
+        kind: 'Freq',
+        argv: ['b.xyz', '--gfn', '2', '--hess'],
+        checkpointName: 'b.chk',
+        checkpointFrom: { nodeId: 'a', checkpoint: 'a.chk' },
+      }),
+    ];
+    const started = await queueManager.start({
+      tasks,
+      edges: [{ from: 'a', to: 'b', type: 'checkpoint' }],
+      options: queueOptions(exe),
+    });
+    const finished = await waitFor(async () => {
+      const queue = await queueManager.get(started.id);
+      return ['completed', 'failed', 'needs-review'].includes(queue.status) ? queue : null;
+    }, { label: 'xTB checkpoint chain' });
+
+    const byId = Object.fromEntries(finished.tasks.map((item) => [item.nodeId, item]));
+    expect(byId.a.status).toBe('completed');
+    expect(byId.b.status).toBe('completed');
+    expect(finished.status).toBe('completed');
+
+    // The queue resolved both sides of the edge to the engine's artifact.
+    const persisted = JSON.parse(await fsp.readFile(path.join(queuesRoot, started.id, 'queue.json'), 'utf8'));
+    const persistedById = Object.fromEntries(persisted.tasks.map((item) => [item.nodeId, item]));
+    expect(persistedById.a.checkpointName).toBe('xtbrestart');
+    expect(persistedById.b.checkpointFrom.checkpoint).toBe('xtbrestart');
+
+    // The downstream run folder holds xtbrestart, not a fabricated .chk.
+    expect(await fsp.readFile(path.join(byId.b.runDir, 'xtbrestart'), 'utf8')).toBe('xTB restart bytes');
+    await expect(fsp.access(path.join(byId.b.runDir, 'a.chk'))).rejects.toThrow();
+    const record = JSON.parse(await fsp.readFile(path.join(byId.b.runDir, 'run.json'), 'utf8'));
+    expect(record.checkpointHandoff).toMatchObject({
+      kind: 'copy',
+      file: 'xtbrestart',
+      sourceRunId: byId.a.runId,
+      bytes: Buffer.byteLength('xTB restart bytes'),
+    });
+    // The queued run's provenance also names the xTB method, not a Gaussian route.
+    expect(record.provenance.method).toMatchObject({ hamiltonian: 'gfn2', optLevel: null });
+  });
+
+  it('names the expected xTB artifact in a mismatch error', async () => {
+    const { exe, queueManager } = await makeStack({ behaviour: xtbBehaviour });
+    const tasks = [
+      xtbTask('a', { checkpointName: 'a.chk' }),
+      xtbTask('b', { checkpointFrom: { nodeId: 'a', checkpoint: 'other.restart' } }),
+    ];
+    const started = await queueManager.start({
+      tasks,
+      edges: [{ from: 'a', to: 'b', type: 'checkpoint' }],
+      options: queueOptions(exe),
+    });
+    const finished = await waitFor(async () => {
+      const queue = await queueManager.get(started.id);
+      return ['completed', 'failed', 'needs-review'].includes(queue.status) ? queue : null;
+    }, { label: 'xTB mismatch settlement' });
+
+    const byId = Object.fromEntries(finished.tasks.map((item) => [item.nodeId, item]));
+    expect(byId.a.status).toBe('completed');
+    expect(byId.b.status).toBe('failed');
+    expect(byId.b.error).toMatch(/Checkpoint mismatch: "a" writes xtbrestart but this task reads other\.restart/);
+    expect(finished.status).toBe('failed');
+  });
+
+  it('keeps the Gaussian .chk artifact name exactly as declared', async () => {
+    const { exe, queueManager, queuesRoot } = await makeStack({
+      behaviour: (outputName) => (outputName === 'a.out' ? { checkpoint: 'r_opt.chk' } : {}),
+    });
+    const tasks = [
+      task('a', { checkpointName: 'r_opt.chk' }),
+      task('b', { checkpointFrom: { nodeId: 'a', checkpoint: 'r_opt.chk' } }),
+    ];
+    const started = await queueManager.start({
+      tasks,
+      edges: [{ from: 'a', to: 'b', type: 'checkpoint' }],
+      options: queueOptions(exe),
+    });
+    const finished = await waitFor(async () => {
+      const queue = await queueManager.get(started.id);
+      return ['completed', 'failed', 'needs-review'].includes(queue.status) ? queue : null;
+    }, { label: 'Gaussian checkpoint settlement' });
+
+    const byId = Object.fromEntries(finished.tasks.map((item) => [item.nodeId, item]));
+    expect(byId.b.status).toBe('completed');
+    const persisted = JSON.parse(await fsp.readFile(path.join(queuesRoot, started.id, 'queue.json'), 'utf8'));
+    const persistedById = Object.fromEntries(persisted.tasks.map((item) => [item.nodeId, item]));
+    expect(persistedById.a.checkpointName).toBe('r_opt.chk');
+    expect(persistedById.b.checkpointFrom.checkpoint).toBe('r_opt.chk');
+    expect(await fsp.readFile(path.join(byId.b.runDir, 'r_opt.chk'), 'utf8')).toBe('checkpoint-bytes');
+    const record = JSON.parse(await fsp.readFile(path.join(byId.b.runDir, 'run.json'), 'utf8'));
+    expect(record.checkpointHandoff).toMatchObject({ file: 'r_opt.chk', kind: 'copy' });
+    await expect(fsp.access(path.join(byId.b.runDir, 'xtbrestart'))).rejects.toThrow();
   });
 });
 

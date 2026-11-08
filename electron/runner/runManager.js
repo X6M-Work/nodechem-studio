@@ -102,17 +102,30 @@ export class RunManager {
           sourceRunId: payload.checkpointHandoff.sourceRunId || null,
           targetDir: runDir,
           dryRun,
+          engine: engine.id,
         });
       } catch (error) {
         stageError = error instanceof Error ? error.message : String(error);
       }
     }
 
+    const settings = payload.settings && typeof payload.settings === 'object' ? payload.settings : null;
+    const argv = Array.isArray(payload.argv) ? payload.argv.map(String) : null;
+    const jobType = settings ? String(settings.jobType || '').trim() || null : null;
+    // Issue #39: the method block belongs to the engine that ran. A Gaussian
+    // block is byte-identical to `methodBlockFor`; xTB records its Hamiltonian
+    // and the argv it was invoked with instead of a Gaussian route.
+    const method = settings
+      ? (typeof engine.methodBlock === 'function'
+        ? engine.methodBlock(settings, { argv, jobType })
+        : methodBlockFor(settings))
+      : null;
+
     const record = {
       id: runId,
       status: stageError ? 'failed' : 'running',
       engine: engine.id,
-      argv: Array.isArray(payload.argv) ? payload.argv.map(String) : null,
+      argv,
       dryRun,
       title: String(payload.title || `${engine.label} task`),
       inputName: payload.inputName,
@@ -131,10 +144,8 @@ export class RunManager {
         kind: provenanceKindFor(dryRun),
         // The job keyword is part of the method record: a methods paragraph
         // must be able to say "optimization + frequency" from run.json alone.
-        jobType: payload.settings && typeof payload.settings === 'object'
-          ? String(payload.settings.jobType || '').trim() || null : null,
-        method: payload.settings && typeof payload.settings === 'object'
-          ? methodBlockFor(payload.settings) : null,
+        jobType,
+        method,
         input: { name: payload.inputName, bytes: inputBytes },
         output: null,
       },

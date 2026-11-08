@@ -10,6 +10,7 @@ import {
   makeXtbFixtureOutput,
   parseXtbGeometry,
   parseXtbOutput,
+  xtbMethodBlock,
 } from '../../src/shared/engines/xtb.js';
 import { terminationCodeOf, canonicalResult } from '../../src/shared/engines/canonical.js';
 import { ENGINES, engineFor, engineOrDefault, isEngineId } from '../../src/shared/engines/index.js';
@@ -131,6 +132,74 @@ describe('xTB input builder', () => {
       molecule: molecule({ coords: [{ element: 'Xx', x: 0, y: 0, z: 0 }] }),
       inputName: 't.xyz',
     })).toThrow(/invalid element/);
+  });
+});
+
+describe('xTB provenance method block', () => {
+  const build = (jobType, extra = {}) => {
+    const settings = { jobType, xtbMethod: 'gfn1', xtbOptLevel: 'tight', ...extra };
+    return { settings, built: buildXtbInput({ settings, molecule: molecule(), inputName: 'task.xyz' }) };
+  };
+
+  it('records the Hamiltonian and opt level each job type actually runs', () => {
+    const cases = [
+      ['SP', null],
+      ['Opt', 'tight'],
+      ['Freq', null],
+      ['Opt Freq', 'tight'],
+    ];
+    for (const [jobType, expectedOptLevel] of cases) {
+      const { settings, built } = build(jobType);
+      const block = xtbMethodBlock(settings, { argv: built.argv, jobType });
+      expect(block.hamiltonian).toBe('gfn1');
+      expect(block.optLevel).toBe(expectedOptLevel);
+      expect(block.argv).toEqual(built.argv);
+      // No Gaussian route vocabulary may leak into an xTB method record.
+      expect(block).not.toHaveProperty('functional');
+      expect(block).not.toHaveProperty('basis');
+      expect(block).not.toHaveProperty('grid');
+      expect(block).not.toHaveProperty('scf');
+    }
+  });
+
+  it('reads the argv that ran instead of stale settings', () => {
+    const block = xtbMethodBlock(
+      { jobType: 'Opt', xtbMethod: 'gfn2', xtbOptLevel: 'normal' },
+      { argv: ['r.xyz', '--gfnff', '--hess'] },
+    );
+    expect(block.hamiltonian).toBe('gfnff');
+    expect(block.optLevel).toBeNull();
+  });
+
+  it('records solvation from argv and never the Gaussian dispersion keyword', () => {
+    const { settings, built } = build('SP', {
+      method: 'B3LYP',
+      basis: 'def2-SVP',
+      dispersion: 'GD3BJ',
+      solvation: true,
+      solvationModel: 'ALPB',
+      solvent: 'THF',
+    });
+    const block = xtbMethodBlock(settings, { argv: built.argv });
+    expect(block.solvation).toBe('ALPB/thf');
+    expect(block.dispersion).toBe('D3(BJ) (built in)');
+    const serialized = JSON.stringify(block);
+    expect(serialized).not.toContain('B3LYP');
+    expect(serialized).not.toContain('def2-SVP');
+    expect(serialized).not.toContain('GD3BJ');
+  });
+
+  it('falls back to settings only when there is no argv to read', () => {
+    const block = xtbMethodBlock({ jobType: 'Opt', xtbMethod: 'gfn0', xtbOptLevel: 'loose' });
+    expect(block).toMatchObject({ hamiltonian: 'gfn0', optLevel: 'loose', argv: null });
+  });
+});
+
+describe('engine checkpoint artifacts', () => {
+  it('resolves the file a checkpoint edge transfers per engine', () => {
+    expect(ENGINES.xtb.checkpointArtifact({ checkpointName: 'a.chk', nodeId: 'a' })).toBe('xtbrestart');
+    expect(ENGINES.gaussian.checkpointArtifact({ checkpointName: 'a.chk', nodeId: 'a' })).toBe('a.chk');
+    expect(ENGINES.gaussian.checkpointArtifact({ nodeId: 'a' })).toBe('a.chk');
   });
 });
 

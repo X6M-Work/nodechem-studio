@@ -12,6 +12,10 @@ import { normalizeValidityContext } from '../../src/shared/validityChecks.js';
 
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const SAFE_CHECKPOINT = /^[A-Za-z0-9._-]{1,124}\.chk$/i;
+// xTB's restart artifact is a plain filename (`xtbrestart`); it is not a
+// Gaussian checkpoint and must not be forced through the `.chk` pattern.
+// The first character is alphanumeric so `.`/`..` can never escape targetDir.
+const SAFE_ARTIFACT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,123}$/;
 const MAX_INPUT_BYTES = 2 * 1024 * 1024;
 const MAX_TASKS = 500;
 
@@ -36,7 +40,48 @@ function oneLine(value, max = 200) {
   return String(value ?? '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, max);
 }
 
-const ROUTE_SETTING_KEYS = ['method', 'basis', 'dispersion', 'scf', 'grid', 'optConvergence', 'solvationModel', 'solvent'];
+const ROUTE_SETTING_KEYS = [
+  'jobType', 'method', 'basis', 'dispersion', 'scf', 'grid', 'optConvergence',
+  'solvationModel', 'solvent',
+  // xTB's method vocabulary; without these a queued run cannot record the
+  // Hamiltonian or optimisation level it actually used (#39).
+  'xtbMethod', 'xtbOptLevel',
+];
+
+/**
+ * The file a checkpoint edge transfers for an engine.
+ *
+ * Gaussian writes the task's own `%Chk` name. xTB always writes its declared
+ * restart artifact (`xtbrestart`) in the working directory, whatever `.chk`
+ * name the old UI may have put on the edge.
+ */
+function checkpointArtifactFor(engine, task = {}) {
+  if (typeof engine.checkpointArtifact === 'function') {
+    return engine.checkpointArtifact({
+      checkpointName: String(task.checkpointName || ''),
+      nodeId: String(task.nodeId || 'task'),
+    });
+  }
+  return String(task.checkpointName || `${task.nodeId || 'task'}.chk`);
+}
+
+/**
+ * What a downstream task declares it reads. An xTB edge may still carry the
+ * pre-#40 UI default `something.chk`; xTB has one restart artifact, so that
+ * placeholder resolves to it instead of failing after the upstream has run.
+ */
+function declaredCheckpointFor(engine, declared) {
+  const name = String(declared || '');
+  if (engine.id !== 'xtb') return name;
+  if (!name || /\.chk$/i.test(name) || name === engine.capabilities.restartArtifact) {
+    return engine.capabilities.restartArtifact;
+  }
+  return name;
+}
+
+function isSafeCheckpointName(engine, name) {
+  return engine.id === 'xtb' ? SAFE_ARTIFACT.test(String(name)) : SAFE_CHECKPOINT.test(String(name));
+}
 
 /**
  * Keep only the route fields the provenance manifest needs. The renderer
@@ -72,14 +117,21 @@ function taskRecord(raw, index) {
     if (!inputText.trim()) throw new Error(`Task "${nodeId}" has no ${engine.label} input.`);
     if (Buffer.byteLength(inputText, 'utf8') > MAX_INPUT_BYTES) throw new Error(`Task "${nodeId}" input is larger than 2 MiB.`);
   }
-  const checkpointFrom = raw?.checkpointFrom && SAFE_ID.test(String(raw.checkpointFrom.nodeId))
-    ? { nodeId: String(raw.checkpointFrom.nodeId), checkpoint: String(raw.checkpointFrom.checkpoint || '') }
-    : null;
-  if (checkpointFrom && !SAFE_CHECKPOINT.test(checkpointFrom.checkpoint)) {
+  let checkpointFrom = null;
+  if (raw?.checkpointFrom && SAFE_ID.test(String(raw.checkpointFrom.nodeId))) {
+    checkpointFrom = {
+      nodeId: String(raw.checkpointFrom.nodeId),
+      checkpoint: declaredCheckpointFor(engine, raw.checkpointFrom.checkpoint),
+    };
+  }
+  if (checkpointFrom && !isSafeCheckpointName(engine, checkpointFrom.checkpoint)) {
     throw new Error(`Task "${nodeId}" hands off a checkpoint with an unsafe name.`);
   }
-  const checkpointName = String(raw?.checkpointName || '');
-  if (checkpointName && !SAFE_CHECKPOINT.test(checkpointName)) {
+  const checkpointName = checkpointArtifactFor(engine, {
+    checkpointName: raw?.checkpointName,
+    nodeId,
+  });
+  if (!isSafeCheckpointName(engine, checkpointName)) {
     throw new Error(`Task "${nodeId}" has an unsafe checkpoint name.`);
   }
   const type = TASK_TYPES.has(raw?.type) ? raw.type : (executable ? 'calc' : 'note');
@@ -388,15 +440,22 @@ export class QueueManager {
     let checkpointHandoff = null;
     if (task.checkpointFrom) {
       const upstream = queue.tasks.find((entry) => entry.nodeId === task.checkpointFrom.nodeId);
-      const upstreamCheckpoint = upstream ? (upstream.checkpointName || `${upstream.nodeId}.chk`) : '';
+      const upstreamEngine = upstream ? engineFor(upstream.engine || 'gaussian') : null;
+      const upstreamCheckpoint = upstream && upstreamEngine ? checkpointArtifactFor(upstreamEngine, upstream) : '';
+      // Old queues and old UI payloads can still carry a `.chk` placeholder on
+      // an xTB edge; resolve it the same way taskRecord does before comparing.
+      const declaredCheckpoint = declaredCheckpointFor(
+        engineFor(task.engine || 'gaussian'),
+        task.checkpointFrom.checkpoint,
+      );
       const problem = !upstream
         ? `Checkpoint source "${task.checkpointFrom.nodeId}" is not part of this workflow.`
         : upstream.status !== 'completed'
           ? `Checkpoint source "${upstream.title}" did not complete (${upstream.status}).`
           : !upstream.runDir
             ? `Checkpoint source "${upstream.title}" has no run folder.`
-            : upstreamCheckpoint !== task.checkpointFrom.checkpoint
-              ? `Checkpoint mismatch: "${upstream.title}" writes ${upstreamCheckpoint} but this task reads ${task.checkpointFrom.checkpoint}.`
+            : upstreamCheckpoint !== declaredCheckpoint
+              ? `Checkpoint mismatch: "${upstream.title}" writes ${upstreamCheckpoint} but this task reads ${declaredCheckpoint}.`
               : null;
       if (problem) {
         task.status = 'failed';
@@ -408,7 +467,7 @@ export class QueueManager {
       }
       checkpointHandoff = {
         sourceRunDir: upstream.runDir,
-        checkpoint: task.checkpointFrom.checkpoint,
+        checkpoint: upstreamCheckpoint,
         sourceRunId: upstream.runId,
       };
     }

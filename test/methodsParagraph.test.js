@@ -274,6 +274,21 @@ describe('methods paragraph — xTB', () => {
     expect(result.plain).toContain(`an xTB Hamiltonian that is ${NOT_RECORDED}`);
     expect(result.plain).not.toContain('GFN2-xTB');
   });
+
+  it('reports the dispersion recorded in an engine-owned xTB method block', () => {
+    const record = xtbRecord();
+    record.provenance.method = {
+      hamiltonian: 'gfn2',
+      optLevel: 'tight',
+      dispersion: 'D4 (built in)',
+      solvation: 'ALPB/water',
+      argv: record.argv,
+    };
+    const result = methodsParagraphFor(record);
+    expect(result.ok).toBe(true);
+    expect(result.plain).toContain('D4 (built in)');
+    expect(result.plain).not.toContain('not itemised in the record');
+  });
 });
 
 describe('methods paragraph — fixture refusal', () => {

@@ -7,7 +7,11 @@
  * ever see the canonical result (see ./canonical.js).
  */
 
-import { buildGaussianInput, outputNameFor as gaussianOutputNameFor } from '../gaussianInput.js';
+import {
+  buildGaussianInput,
+  methodBlockFor,
+  outputNameFor as gaussianOutputNameFor,
+} from '../gaussianInput.js';
 import { parseGaussianOutput } from '../gaussianOutput.js';
 import { makeFixtureOutput } from '../fixtureOutput.js';
 import { terminationCodeOf } from './canonical.js';
@@ -20,6 +24,7 @@ import {
   isSafeXtbOutputName,
   makeXtbFixtureOutput,
   parseXtbOutput,
+  xtbMethodBlock,
 } from './xtb.js';
 
 const GAUSSIAN_INPUT = /^[A-Za-z0-9._-]+\.(gjf|com)$/i;
@@ -42,6 +47,20 @@ export const GAUSSIAN_ENGINE = Object.freeze({
 
   acceptsInputName: (name) => GAUSSIAN_INPUT.test(String(name)),
   acceptsOutputName: (name) => GAUSSIAN_OUTPUT.test(String(name)),
+
+  /**
+   * The provenance method block for a Gaussian job. It is exactly the block
+   * `methodBlockFor` writes into the manifest today; the hook exists so the
+   * runner never assumes Gaussian when an engine supplies its own vocabulary.
+   */
+  methodBlock(settings = {}) {
+    return methodBlockFor(settings);
+  },
+
+  /** A Gaussian checkpoint is named by the task; `%Chk` writes that file. */
+  checkpointArtifact({ checkpointName = '', nodeId = 'task' } = {}) {
+    return String(checkpointName || `${nodeId}.chk`);
+  },
 
   /** Thin wrapper so callers can build either engine's input the same way. */
   buildInput({ title, settings, molecule, inputName, oldCheckpoint = '' }) {
@@ -87,7 +106,16 @@ export const XTB_ENGINE = Object.freeze({
   acceptsOutputName: isSafeXtbOutputName,
 
   buildInput: buildXtbInput,
+  methodBlock: xtbMethodBlock,
   parse: parseXtbOutput,
+
+  /**
+   * xTB reads its restart data from `xtbrestart` in the working directory; the
+   * name is fixed by the engine, never by the node's Gaussian checkpoint field.
+   */
+  checkpointArtifact() {
+    return XTB_CAPABILITIES.restartArtifact;
+  },
 
   makeFixture({ imaginary = 0 } = {}) {
     return makeXtbFixtureOutput({ imaginary });

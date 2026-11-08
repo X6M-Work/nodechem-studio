@@ -2,15 +2,25 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 const SAFE_CHECKPOINT = /^[A-Za-z0-9._-]{1,124}\.chk$/i;
-const FIXTURE_HEADER = 'FIXTURE CHECKPOINT — synthetic staging artifact, not a Gaussian checkpoint\n';
+// xTB's restart artifact has no extension (`xtbrestart`); the name is still
+// constrained to one safe path segment, starting with an alphanumeric so `.`
+// and `..` can never escape targetDir.
+const SAFE_RESTART_ARTIFACT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,123}$/;
+const FIXTURE_HEADER = 'FIXTURE CHECKPOINT — synthetic staging artifact, ';
+const FIXTURE_DETAIL = {
+  gaussian: 'not a Gaussian checkpoint\n',
+  xtb: 'not an xTB restart file\n',
+};
 
 /**
  * Copy the upstream checkpoint into the downstream run folder.
  *
  * Gaussian resolves `%OldChk` against the job's working directory, so the file
- * must exist there before the process starts. A dry run has no real checkpoint,
- * so it stages a clearly labelled fixture instead; a real run fails loudly if
- * the upstream file is missing or empty.
+ * must exist there before the process starts. xTB reads `xtbrestart` from the
+ * working directory by itself, so the same copy makes a checkpoint edge work
+ * for either engine. A dry run has no real checkpoint, so it stages a clearly
+ * labelled fixture instead; a real run fails loudly if the upstream file is
+ * missing or empty.
  */
 export async function stageCheckpoint({
   sourceRunDir = '',
@@ -18,13 +28,18 @@ export async function stageCheckpoint({
   targetDir,
   dryRun = false,
   sourceRunId = null,
+  engine = 'gaussian',
 }) {
-  if (!SAFE_CHECKPOINT.test(String(checkpoint))) {
-    throw new Error('Checkpoint hand-off name must be a safe .chk basename.');
+  const isXtb = engine === 'xtb';
+  const safe = isXtb ? SAFE_RESTART_ARTIFACT : SAFE_CHECKPOINT;
+  if (!safe.test(String(checkpoint))) {
+    throw new Error(isXtb
+      ? 'Checkpoint hand-off name must be a safe restart-artifact basename.'
+      : 'Checkpoint hand-off name must be a safe .chk basename.');
   }
   const target = path.join(targetDir, checkpoint);
   const fixture = async (reason) => {
-    await fsp.writeFile(target, `${FIXTURE_HEADER}reason: ${reason}\n`, 'utf8');
+    await fsp.writeFile(target, `${FIXTURE_HEADER}${FIXTURE_DETAIL[isXtb ? 'xtb' : 'gaussian']}reason: ${reason}\n`, 'utf8');
     const stat = await fsp.stat(target);
     return { file: checkpoint, bytes: stat.size, sourceRunId, kind: 'fixture', reason };
   };

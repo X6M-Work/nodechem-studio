@@ -7,6 +7,8 @@ import { RunManager } from '../electron/runner/runManager.js';
 import { QueueManager } from '../electron/runner/queue.js';
 import { readOutputFile } from '../electron/runner/gaussianRunner.js';
 import { buildGaussianInput, DEMO_WATER, methodBlockFor, routeFor } from '../src/shared/gaussianInput.js';
+import { buildXtbInput, makeXtbFixtureOutput } from '../src/shared/engines/xtb.js';
+import { provenanceSummary } from '../src/shared/provenance.js';
 import { defaultSettings } from '../src/shared/projectSchema.js';
 import { parseGaussianOutput, outputEvidence } from '../src/shared/gaussianOutput.js';
 import { makeFixtureOutput } from '../src/shared/fixtureOutput.js';
@@ -394,6 +396,85 @@ describe('queued workflow provenance', () => {
     expect(runJson.provenance.method).toEqual(methodBlockFor(settings));
     expect(runJson.app).toEqual({ version: '0.1.0', commit: 'queued1' });
     expect(runJson.inputSha256).toBe(sha256Text(inputText));
+  });
+});
+
+describe('xTB provenance manifest', () => {
+  it('records the Hamiltonian and argv, never the Gaussian route', async () => {
+    const { manager, events, root } = await makeManager({
+      createRunner: () => ({
+        cancel() {},
+        async run({ outputName }) {
+          const text = makeXtbFixtureOutput();
+          return {
+            exitCode: 0,
+            signal: null,
+            cancelled: false,
+            outputPath: null,
+            outputName,
+            outputSource: 'stdout',
+            truncated: false,
+            outputText: text,
+            stdout: text,
+            stderr: '',
+          };
+        },
+      }),
+    });
+    const executable = await fakeExecutable(root);
+    // Gaussian fields are present in the settings on purpose: an xTB run must
+    // not copy them into the manifest just because the node still carries them.
+    const settings = {
+      jobType: 'Opt',
+      method: 'B3LYP',
+      basis: 'def2-SVP',
+      dispersion: 'GD3BJ',
+      scf: '',
+      grid: '',
+      solvation: false,
+      xtbMethod: 'gfn1',
+      xtbOptLevel: 'normal',
+    };
+    const built = buildXtbInput({
+      title: 'xTB opt provenance',
+      settings,
+      molecule: { charge: 0, multiplicity: 1, coords: DEMO_WATER },
+      inputName: 'r-opt.xyz',
+    });
+    const response = await manager.start({
+      title: 'xTB opt provenance',
+      engine: 'xtb',
+      argv: built.argv,
+      inputText: built.inputText,
+      inputName: built.inputName,
+      outputName: built.outputName,
+      settings,
+      executable,
+      dryRun: false,
+      gates: {},
+    });
+    const done = await waitForDone(events);
+    expect(done.record.engine).toBe('xtb');
+
+    const runJson = await readRunJson(response.runDir);
+    expect(runJson.argv).toEqual(['r-opt.xyz', '--gfn', '1', '--opt', 'normal']);
+    expect(runJson.provenance.jobType).toBe('Opt');
+    expect(runJson.provenance.method).toMatchObject({
+      hamiltonian: 'gfn1',
+      optLevel: 'normal',
+      dispersion: 'D3(BJ) (built in)',
+      solvation: null,
+      argv: ['r-opt.xyz', '--gfn', '1', '--opt', 'normal'],
+    });
+
+    // The regression: the method record must not claim the node's Gaussian
+    // route settings when a different engine actually ran.
+    const methodJson = JSON.stringify(runJson.provenance.method);
+    for (const forbidden of ['B3LYP', 'def2-SVP', 'GD3BJ', 'functional', 'basis', 'grid', 'scf']) {
+      expect(methodJson).not.toContain(forbidden);
+    }
+
+    expect(provenanceSummary(runJson)).toContain('method: GFN1-xTB · opt normal');
   });
 });
 

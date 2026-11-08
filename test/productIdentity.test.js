@@ -77,6 +77,10 @@ const INSTALLER = artifactName({
   ext: 'exe',
 });
 
+// electron-builder renders the AppImage arch as `x86_64`, so the published name
+// is not `${name}-${version}-x64.AppImage`. Pin the name the release actually ships.
+const APPIMAGE = `${pkg.name}-${pkg.version}-x86_64.AppImage`;
+
 describe('packaged product identity', () => {
   it('names the package, app id and shortcut NodeChem Studio', () => {
     expect(pkg.name).toBe('nodechem-studio');
@@ -100,7 +104,8 @@ describe('packaged product identity', () => {
   });
 
   it('documents the same installer filename that the build produces', () => {
-    expect(read('README.md')).toContain(`release\\${INSTALLER}`);
+    expect(read('docs/guide/install.md')).toContain(`release\\${INSTALLER}`);
+    expect(read('docs/guide/install.md')).toContain(`release/${APPIMAGE}`);
     expect(read('docs/IMPLEMENTATION_PLAN.md')).toContain(`release/${INSTALLER}`);
   });
 

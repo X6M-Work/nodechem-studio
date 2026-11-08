@@ -34,6 +34,17 @@ const README = read('README.md');
 const HTML = read('index.html');
 const RENDERER = rendererFiles().map((rel) => ({ rel, text: read(rel) }));
 
+/** Every user-facing document. The guide is part of the product's copy. */
+function docsFiles(relDir = 'docs/guide') {
+  const absolute = path.join(ROOT, relDir);
+  return fs.readdirSync(absolute, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.md'))
+    .map((entry) => path.posix.join(relDir, entry.name));
+}
+
+const DOCS = [{ rel: 'README.md', text: README }, ...docsFiles().map((rel) => ({ rel, text: read(rel) }))];
+const CORPUS = DOCS.map(({ text }) => text).join('\n');
+
 /** Exact sentences removed in issue #43. Any one of them is a regression. */
 const STALE_CLAIMS = [
   'Open the desktop app to start a local Gaussian run.',
@@ -47,8 +58,8 @@ const STALE_CLAIMS = [
 ];
 
 describe('issue #43 — stale Gaussian-only copy cannot drift back', () => {
-  it('keeps every removed sentence out of the README, the renderer shell and src/renderer', () => {
-    const surfaces = [{ rel: 'README.md', text: README }, { rel: 'index.html', text: HTML }, ...RENDERER];
+  it('keeps every removed sentence out of the documentation, the renderer shell and src/renderer', () => {
+    const surfaces = [...DOCS, { rel: 'index.html', text: HTML }, ...RENDERER];
     for (const claim of STALE_CLAIMS) {
       const offenders = surfaces.filter(({ text }) => text.includes(claim)).map(({ rel }) => rel);
       expect(offenders, `stale copy: "${claim}"`).toEqual([]);
@@ -58,8 +69,8 @@ describe('issue #43 — stale Gaussian-only copy cannot drift back', () => {
   it('describes the dry run as a fixture, never as a Gaussian log', () => {
     expect(HTML).toContain('Dry run (fixture output)');
     expect(HTML).toContain('synthetic fixture log');
-    expect(README).toContain('A dry run is a fixture for both engines');
-    expect(README).toContain('FIXTURE OUTPUT');
+    expect(CORPUS).toContain('A dry run is a fixture for both engines');
+    expect(CORPUS).toContain('FIXTURE OUTPUT');
   });
 
   it('keeps the executable field label addressable so it can name the engine', () => {
@@ -67,39 +78,46 @@ describe('issue #43 — stale Gaussian-only copy cannot drift back', () => {
   });
 });
 
-describe('issue #43 — README documents both engines', () => {
+describe('issue #43 — the documentation covers both engines', () => {
   it('has an Engines section that names both engines and every xTB method', () => {
-    expect(README).toMatch(/^## Engines$/m);
-    expect(README).toContain('Gaussian 16');
-    expect(README).toContain('GFN0-xTB');
-    expect(README).toContain('GFN1-xTB');
-    expect(README).toContain('GFN2-xTB');
-    expect(README).toContain('GFN-FF');
+    expect(CORPUS).toMatch(/^#{1,2} Engines$/m);
+    expect(CORPUS).toContain('Gaussian 16');
+    expect(CORPUS).toContain('GFN0-xTB');
+    expect(CORPUS).toContain('GFN1-xTB');
+    expect(CORPUS).toContain('GFN2-xTB');
+    expect(CORPUS).toContain('GFN-FF');
   });
 
   it('explains what each engine cannot do and that xTB is not a Gaussian substitute', () => {
-    expect(README).toContain('An xTB run is not a substitute for a Gaussian result');
-    expect(README).toContain('No transition-state search (`Opt=TS`), no IRC and no PES scan');
-    expect(README).toContain('No validity checks');
-    expect(README).toContain('No checkpoint hand-off');
-    expect(README).toContain('licensed separately by Gaussian, Inc.');
+    expect(CORPUS).toContain('An xTB run is not a substitute for a Gaussian result');
+    expect(CORPUS).toContain('No transition-state search (`Opt=TS`), no IRC and no PES scan');
+    expect(CORPUS).toContain('No validity checks');
+    expect(CORPUS).toContain('licensed separately by Gaussian, Inc.');
+    // Issue #40 made the restart hand-off real, so the docs must describe it
+    // rather than repeating the old "not implemented" claim.
+    expect(CORPUS).toContain('xtbrestart');
+    expect(CORPUS).toContain('Restart hand-off');
   });
 
   it('documents the xTB setup path end to end', () => {
-    expect(README).toContain('### Setting up xTB');
-    expect(README).toContain('share/xtb');
-    expect(README).toContain('XTBPATH');
-    expect(README).toContain('xtb.exe');
-    expect(README).toContain('xTB executable');
-    expect(README).toContain('`<input>.out`');
-    expect(README).toContain('`xtbopt.xyz`');
+    expect(CORPUS).toContain('### Setting up xTB');
+    expect(CORPUS).toContain('share/xtb');
+    expect(CORPUS).toContain('XTBPATH');
+    expect(CORPUS).toContain('xtb.exe');
+    expect(CORPUS).toContain('xTB executable');
+    expect(CORPUS).toContain('`<input>.out`');
+    expect(CORPUS).toContain('`xtbopt.xyz`');
   });
 
   it('has a settings-ownership table for the two engines', () => {
-    expect(README).toMatch(/^### Which settings belong to which engine$/m);
-    expect(README).toContain('| Setting | Gaussian 16 | xTB |');
-    expect(README).toContain('ALPB / GBSA (builder only; not in the current inspector)');
-    expect(README).toContain('Not supported');
+    expect(CORPUS).toMatch(/^#{2,3} Which settings belong to which engine$/m);
+    expect(CORPUS).toContain('| Setting | Gaussian 16 | xTB |');
+    // Issue #42 made xTB solvation reachable from the inspector; the docs must
+    // not still call it builder-only. Issue #40 made the restart hand-off real,
+    // so the table's checkpoint row describes the copy instead of "Not supported".
+    expect(CORPUS).toContain('ALPB / GBSA');
+    expect(CORPUS).not.toContain('builder only');
+    expect(CORPUS).toContain('Copies `xtbrestart` into the downstream run folder');
   });
 });
 

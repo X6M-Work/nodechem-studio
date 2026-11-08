@@ -320,7 +320,10 @@ describe('issue #15 — seeded Diels–Alder project', () => {
 });
 
 describe('issue #15 — documentation', () => {
-  const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  // The transition-state rationale lives in the engines page, linked from the README.
+  const readme = ['../README.md', '../docs/guide/engines.md']
+    .map((rel) => readFileSync(new URL(rel, import.meta.url), 'utf8'))
+    .join('\n');
 
   it('explains why CalcFC is the transition-state default', () => {
     expect(readme).toContain('Opt=(TS,CalcFC,NoEigenTest)');

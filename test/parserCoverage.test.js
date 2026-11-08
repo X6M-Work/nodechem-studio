@@ -278,6 +278,15 @@ describe('population analysis, dipole, T1 and resources', () => {
     expect(parsed.links[0].resources.nBasis).toBe(34);
   });
 
+  it('parses real Gaussian resource line with "Will use up to N processors"', () => {
+    const output = parseGaussianOutput([
+      ' FIXTURE OUTPUT — synthetic, not a real calculation',
+      ' Will use up to    8 processors via shared memory.',
+      ' Normal termination of Gaussian 16',
+    ].join('\n'));
+    expect(output.resources.processors).toBe(8);
+  });
+
   it('keeps population records scoped to the link that printed them', () => {
     expect(parsed.links[0].charges.mulliken).toHaveLength(4);
     expect(parsed.links[0].charges.dipole.total).toBeCloseTo(0.1234, 9);

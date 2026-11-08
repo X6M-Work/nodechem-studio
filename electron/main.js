@@ -8,6 +8,8 @@ import { QueueManager } from './runner/queue.js';
 import { preflight } from './runner/preflight.js';
 import { defaultGaussianExecutablePath } from './runner/gaussianPlatform.js';
 import { writeClusterExport, importClusterExport } from './runner/clusterFiles.js';
+import { writeRunBundle } from './runner/runBundle.js';
+import { isSafeRunId } from '../src/shared/runBundle.js';
 import { parseProjectText, stringifyProject, summarizeErrors } from '../src/shared/projectSchema.js';
 import {
   PROJECT_EXTENSIONS,
@@ -228,6 +230,34 @@ async function importClusterResults() {
   }
 }
 
+/**
+ * Export one recorded run as a folder: exact input, parsed output, methods.md,
+ * manifest.json and README.md. The renderer supplies only the run id; the path
+ * is rebuilt here under the runs root after validating that id.
+ */
+async function exportRunBundle(runId) {
+  const id = String(runId || '');
+  if (!isSafeRunId(id)) {
+    return { canceled: false, error: { message: 'Run id must be a safe run folder name.' } };
+  }
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Choose a folder for the run bundle',
+    defaultPath: app.getPath('documents'),
+    properties: ['openDirectory', 'createDirectory'],
+    buttonLabel: 'Export bundle here',
+  });
+  if (result.canceled || !result.filePaths[0]) return { canceled: true };
+  const bundleDir = path.join(result.filePaths[0], `run-bundle-${id}`);
+  try {
+    return await writeRunBundle({
+      runDir: path.join(app.getPath('userData'), 'runs', id),
+      bundleDir,
+    });
+  } catch (error) {
+    return { canceled: false, error: { message: error.message } };
+  }
+}
+
 app.whenReady().then(async () => {
   runManager = new RunManager({
     runsRoot: path.join(app.getPath('userData'), 'runs'),
@@ -266,6 +296,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('gaussian:cancel', (_event, runId) => runManager.cancel(runId));
   ipcMain.handle('runs:list', () => runManager.list());
   ipcMain.handle('runs:verify', (_event, runId) => runManager.verify(runId));
+  ipcMain.handle('runs:export-bundle', (_event, runId) => exportRunBundle(runId));
   ipcMain.handle('queue:start', (_event, payload) => queueManager.start(payload));
   ipcMain.handle('queue:pause', (_event, queueId) => queueManager.pause(queueId));
   ipcMain.handle('queue:resume', (_event, queueId) => queueManager.resume(queueId));

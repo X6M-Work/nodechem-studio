@@ -102,7 +102,7 @@ Two paths exist:
 2. **Shared folder / bundle**: place the tarball or patch in the agent exchange share. Do not
    put secrets, licence files, genotypes, medical data, or credentials there.
 
-Bundles are versioned: `nodechem-studio-v0.1.0.tar.gz` plus `.sha256`. Verify the checksum
+Bundles are versioned: `nodechem-studio-v0.2.0.tar.gz` plus `.sha256`. Verify the checksum
 before unpacking. The bundle excludes `node_modules`, `dist`, `.git`, run folders, and logs.
 
 ## 7. Environment rules for Will's machine

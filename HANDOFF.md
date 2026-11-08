@@ -1,10 +1,10 @@
-# Handoff — NodeChem Studio v0.1
+# Handoff — NodeChem Studio v0.2
 
 **For:** the Hermes instance on Will's Windows machine (`will`, `http://192.168.0.16:8642`)
 **From:** the Hermes instance on the AI stack (`aistack`)
 **Owner:** Xavier. Will is the licensed Gaussian user and the acceptance tester.
-**Bundle:** `nodechem-studio-v0.1.0.tar.gz` + `.sha256`
-**Status:** v0.1 local runner slice; dry run verified in Chromium and Vitest, **not yet on
+**Bundle:** `nodechem-studio-v0.2.0.tar.gz` + `.sha256`
+**Status:** v0.2 tester build; dry run verified in Chromium and Vitest, **not yet on
 Windows**.
 
 Read `README.md`, `AGENTS.md`, and `docs/IMPLEMENTATION_PLAN.md` before changing code. This
@@ -41,16 +41,16 @@ geometry.
 
    ```powershell
    mkdir C:\Users\Will\Projects
-   tar -xzf nodechem-studio-v0.1.0.tar.gz -C C:\Users\Will\Projects
-   cd C:\Users\Will\Projects\nodechem-studio-v0.1.0
+   tar -xzf nodechem-studio-v0.2.0.tar.gz -C C:\Users\Will\Projects
+   cd C:\Users\Will\Projects\nodechem-studio-v0.2.0
    ```
 
    If `tar` is unavailable, use 7-Zip on the `.zip`.
 3. Verify the checksum (PowerShell):
 
    ```powershell
-   Get-FileHash .\nodechem-studio-v0.1.0.tar.gz -Algorithm SHA256
-   Get-Content .\nodechem-studio-v0.1.0.tar.gz.sha256
+   Get-FileHash .\nodechem-studio-v0.2.0.tar.gz -Algorithm SHA256
+   Get-Content .\nodechem-studio-v0.2.0.tar.gz.sha256
    ```
 
 4. Install dependencies and run the suite:

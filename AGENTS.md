@@ -80,6 +80,8 @@ npm run build
   runner, known limitations.
 - Squash merge. Do not force-push `main`. Do not commit directly to `main`.
 - If a task changes a boundary in `docs/IMPLEMENTATION_PLAN.md`, update the plan in the same PR.
+- User-facing behaviour belongs in `docs/guide/`; update the page a change makes untrue in the same PR,
+  and keep `test/docs.test.js` (links, index coverage, version chips, no-network scan) green.
 
 ## Platform specifics
 

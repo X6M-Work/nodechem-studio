@@ -1,0 +1,67 @@
+# NodeChem Studio documentation
+
+NodeChem Studio is a desktop app for building and running computational-chemistry workflows as a
+graph. You place calculation blocks on a canvas, connect them, and run either the whole workflow or
+a single block. Each run writes a folder you can inspect, hash and hand to someone else.
+
+It drives two engines:
+
+| Engine | Licence | What it is |
+| --- | --- | --- |
+| **Gaussian 16** | Commercial, licensed separately by Gaussian, Inc. | DFT and wavefunction calculations with explicit basis sets |
+| **xTB** (GFN0/GFN1/GFN2/GFN-FF) | Open source, LGPL | Fast semi-empirical and force-field calculations |
+
+The app never bundles either engine. It drives an installation you already have.
+
+## Reading order
+
+If you are new, read these in order:
+
+1. [Install](install.md) — get the app onto a machine, and learn where it keeps its files.
+2. [Your first project](first-project.md) — open the seeded project, run the dry run, read the result.
+3. [The canvas](canvas.md) — blocks, connections, the inspector, and what the node colours mean.
+4. [Engines](engines.md) — choose Gaussian 16 or xTB, and know which settings belong to which.
+5. [Workflows](workflow.md) — the queue, conditions, loops, checkpoint hand-off, cluster export.
+6. [Results](results.md) — the results panel, gates, validity checks, methods text, run bundles.
+7. [Projects and runs on disk](project-files.md) — the `.ncs` file and the run folder.
+
+Reference pages:
+
+- [Troubleshooting](troubleshooting.md) — symptom, cause, action.
+- [FAQ](faq.md) — short answers to the questions testers ask first.
+- [Privacy and licensing](privacy-and-licensing.md) — what leaves the machine (nothing) and what
+  the licence does and does not grant.
+
+Normative references, for people reading code or writing tooling:
+
+- [`docs/PROJECT-FORMAT.md`](../PROJECT-FORMAT.md) — the `.ncs` document and the on-disk layout.
+- [`docs/CLUSTER_EXPORT.md`](../CLUSTER_EXPORT.md) — the SLURM/PBS export folder and manifest.
+- [`docs/IMPLEMENTATION_PLAN.md`](../IMPLEMENTATION_PLAN.md) — phased plan and remaining work.
+- [`README.md`](../../README.md) — the project landing page.
+
+## What this documentation is careful about
+
+Three things, because a wrong claim in a chemistry tool is expensive:
+
+- **Dry run is a fixture.** Wherever the docs say "dry run", they mean a synthetic file headed
+  `FIXTURE OUTPUT`. It exercises the parser and the queue. It is never a calculation, and no number
+  from it is a chemical result.
+- **Unverified paths are named as unverified.** No licensed Gaussian run has been recorded by the
+  project's automated tests, and no xTB binary ships with the app. The docs say so where it matters
+  instead of implying a validated pipeline.
+- **Nothing is reported that the output did not contain.** The results panel prints
+  `not reported` for a missing value, and the docs describe that behaviour rather than smoothing
+  over it.
+
+## Where to report a problem
+
+The repository is private while the tester build is being evaluated. Send the run folder with the
+report:
+
+```
+%APPDATA%\nodechem-studio\runs\<runId>        Windows
+~/.config/nodechem-studio/runs/<runId>        Linux
+```
+
+It contains the exact input, the raw output, `run.json` and the gate evidence — enough to reproduce
+a defect without guessing.

@@ -198,11 +198,14 @@ describe('issue #17 — existing project files', () => {
 });
 
 describe('issue #17 — documentation', () => {
-  it('README explains the default change and names the legacy preset', () => {
-    const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
-    expect(readme).toContain('B3LYP-D3(BJ)/def2-SVP');
-    expect(readme).toContain('r²SCAN-3c');
-    expect(readme).toContain('Legacy (reproduce a paper)');
-    expect(readme).toContain('Existing project files are never rewritten on open');
+  it('documents the default change and names the legacy preset', () => {
+    // The route rationale lives in the engines page; the landing page links to it.
+    const docs = ['../README.md', '../docs/guide/engines.md']
+      .map((rel) => readFileSync(new URL(rel, import.meta.url), 'utf8'))
+      .join('\n');
+    expect(docs).toContain('B3LYP-D3(BJ)/def2-SVP');
+    expect(docs).toContain('r²SCAN-3c');
+    expect(docs).toContain('Legacy (reproduce a paper)');
+    expect(docs).toContain('Existing project files are never rewritten on open');
   });
 });

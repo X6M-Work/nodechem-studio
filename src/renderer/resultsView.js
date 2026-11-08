@@ -14,6 +14,8 @@
  * call.
  */
 
+import { methodsParagraphFor } from '../shared/methodsParagraph.js';
+
 const MISSING_TEXT = 'not reported';
 
 const ENGINE_LABELS = Object.freeze({
@@ -430,6 +432,19 @@ function errorCard(record, parsed) {
   return card('Error termination', blocks.join(''), 'is-wide is-error');
 }
 
+function methodsCard(record) {
+  let result;
+  try {
+    result = methodsParagraphFor(record, { form: 'full' });
+  } catch (error) {
+    return card('Methods paragraph', `<p class="results-missing">${esc(error.message)}</p>`, 'is-wide');
+  }
+  if (!result?.ok) {
+    return card('Methods paragraph', `<p class="results-missing">${esc(result?.message || 'No methods paragraph is available for this run.')}</p>`, 'is-wide');
+  }
+  return card('Methods paragraph', `<pre class="results-methods-text">${esc(result.markdown)}</pre>`, 'is-wide');
+}
+
 function gatesCard(gates) {
   const overall = gateResult(gates?.overall);
   const list = Array.isArray(gates?.gates) ? gates.gates : [];
@@ -550,6 +565,7 @@ export function resultsPanelHtml(record) {
     programCard(parsed, flags),
     energyCard(parsed, flags),
     thermochemistryCard(parsed, flags),
+    methodsCard(record),
     frequenciesCard(parsed, flags),
     chargesCard(parsed, flags),
     t1Card(parsed, flags),
@@ -760,6 +776,10 @@ const RESULTS_VIEW_CSS = `
 }
 .results-card.is-wide { grid-column: 1 / -1; }
 .results-card.is-error { border-color: color-mix(in srgb, var(--red) 30%, var(--line)); }
+.results-methods-text {
+  margin: 0; white-space: pre-wrap; overflow-wrap: anywhere;
+  color: var(--text); font: 9.5px/1.5 var(--mono);
+}
 .results-card-title {
   margin-bottom: 6px; color: var(--muted); font-size: 8.5px; font-weight: 700;
   letter-spacing: .1em; text-transform: uppercase;

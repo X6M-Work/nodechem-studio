@@ -17,7 +17,7 @@
         </svg>
       </span>
       <span class="brand-name">NodeChem<span>Studio</span></span>
-      <span class="proto-chip">v0.2.0 · tester build</span>
+      <span class="proto-chip" id="app-version-chip">desktop preview</span>
     </div>
 
     <div class="project-block">
@@ -148,7 +148,7 @@
         </div>
         <div class="status-message" id="status-message">Structure valid · acyclic · no local job has been run</div>
         <div class="status-right">
-          <span class="mock-tag">v0.2.0 · local runner</span>
+          <span class="mock-tag" id="app-version-status">local runner</span>
           <span class="kbd-hint" id="kbd-hint"><kbd>⌘</kbd><kbd>K</kbd> search blocks</span>
         </div>
       </div>
@@ -243,7 +243,7 @@
         <span>Workflow queue</span>
         <span class="run-state" id="queue-state">idle</span>
         <div class="run-queue-actions">
-          <button class="btn primary small" data-action="run-workflow">Run workflow</button>
+          <button class="btn primary small" id="run-workflow" data-action="run-workflow">Run workflow</button>
           <button class="btn small" id="pause-workflow" data-action="pause-workflow" disabled>Pause</button>
           <button class="btn small" id="resume-workflow" data-action="resume-workflow" disabled>Resume</button>
           <button class="btn small danger" id="cancel-workflow" data-action="cancel-workflow" disabled>Cancel all</button>

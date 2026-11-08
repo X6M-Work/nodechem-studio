@@ -58,6 +58,8 @@ import {
 } from './engineCopy.js';
 
 const desktop = window.desktop || null;
+const APP_VERSION = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : '';
+let appVersion = APP_VERSION;
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -242,6 +244,7 @@ const state = {
     status: 'idle',
     tasks: [],
     reason: null,
+    starting: false,
   },
 };
 
@@ -664,11 +667,11 @@ function field(label, control, full = false) {
 function inputField(label, key, value, options = {}) {
   const type = options.type || 'text';
   const full = options.full ? ' full' : '';
-  return `<div class="field${full}"><label>${esc(label)}</label><input class="input${type === 'number' ? '' : ''}" type="${type}" data-node-field="${key}" value="${esc(value)}" ${options.min !== undefined ? `min="${options.min}"` : ''} ${options.max !== undefined ? `max="${options.max}"` : ''} ${options.step ? `step="${options.step}"` : ''}></div>`;
+  return `<div class="field${full}"><label>${esc(label)}</label><input class="input${type === 'number' ? '' : ''}" type="${type}" data-node-field="${key}" aria-label="${esc(label)}" value="${esc(value)}" ${options.min !== undefined ? `min="${options.min}"` : ''} ${options.max !== undefined ? `max="${options.max}"` : ''} ${options.step ? `step="${options.step}"` : ''}></div>`;
 }
 
 function selectField(label, key, options, value, full = false) {
-  return `<div class="field${full ? ' full' : ''}"><label>${esc(label)}</label><select class="select" data-node-field="${key}">
+  return `<div class="field${full ? ' full' : ''}"><label>${esc(label)}</label><select class="select" data-node-field="${key}" aria-label="${esc(label)}">
     ${options.map(([optionValue, optionLabel]) => `<option value="${esc(optionValue)}"${String(value) === String(optionValue) ? ' selected' : ''}>${esc(optionLabel)}</option>`).join('')}
   </select></div>`;
 }
@@ -774,7 +777,7 @@ function renderProjectInspector() {
       <div class="section-label">Validation</div>
       <div class="validation-card">
         <span class="v-icon">✓</span>
-        <div><strong>Structure valid</strong>${condCount ? `${condCount} condition · ` : ''}${loopCount} loop. Branch and loop execution is planned; the v0.1 runner executes a single selected calculation.</div>
+        <div><strong>Structure valid</strong>${condCount ? `${condCount} condition · ` : ''}${loopCount} loop. Branch and loop execution is planned; the current runner executes a single selected calculation.</div>
       </div>
       <p class="inspector-note" style="margin-top:8px">Select any block to edit its full Current Job parameter set here; use the expand control for a two-column layout.</p>
     </section>
@@ -885,8 +888,8 @@ function calcInspector(node) {
       : '',
     !isXtb ? tsForceField : '',
     gaussianResources ? `<div class="field"><label>Memory</label><div class="field-row">
-      <input class="input" type="number" min="1" max="512" data-node-field="memory" value="${esc(s.memory)}">
-      <select class="select" data-node-field="memoryUnit">${MEMORY_UNITS.map(([value, label]) => `<option value="${value}"${s.memoryUnit === value ? ' selected' : ''}>${label}</option>`).join('')}</select>
+      <input class="input" type="number" min="1" max="512" aria-label="Memory" data-node-field="memory" value="${esc(s.memory)}">
+      <select class="select" aria-label="Memory unit" data-node-field="memoryUnit">${MEMORY_UNITS.map(([value, label]) => `<option value="${value}"${s.memoryUnit === value ? ' selected' : ''}>${label}</option>`).join('')}</select>
     </div></div>` : '',
     gaussianResources ? inputField('Cores (nproc)', 'nproc', s.nproc, { type: 'number', min: 1, max: 256 }) : '',
     gaussianResources ? inputField('Checkpoint file', 'checkpoint', s.checkpoint || chkName(node.id), { full: true }) : '',
@@ -941,7 +944,7 @@ function calcInspector(node) {
     inputField('Charge', 'charge', s.charge, { type: 'number', min: -10, max: 10 }),
     inputField('Multiplicity', 'multiplicity', s.multiplicity, { type: 'number', min: 1, max: 10 }),
     `<div class="field full"><label>Structure</label><div class="card" style="display:flex;align-items:center;gap:8px;justify-content:space-between">
-      <span class="inspector-note">Inherited from the project molecule.</span>
+      <span class="inspector-note">Geometry comes from the project molecule; charge and multiplicity are per-block overrides.</span>
       <button type="button" class="btn small" data-open-modal="molecule">Edit</button>
     </div></div>`,
   ].join(''));
@@ -974,7 +977,7 @@ function calcInspector(node) {
 
   const dependencyGroup = group('Dependencies', `${ins.length} input${ins.length === 1 ? '' : 's'}`, true, [
     `<div class="full">${incomingList(node.id)}</div>`,
-    checkpointHandoff && ins.length ? `<div class="field full"><label>Checkpoint hand-off</label><select class="select" data-node-field="checkpointFrom">
+    checkpointHandoff && ins.length ? `<div class="field full"><label>Checkpoint hand-off</label><select class="select" aria-label="Checkpoint hand-off" data-node-field="checkpointFrom">
       <option value="">None</option>
       ${ins.map((edge) => {
         const source = nodeById(edge.from);
@@ -1363,6 +1366,8 @@ function addBlock(type) {
         memory: state.project.defaults.memory,
         memoryUnit: state.project.defaults.memoryUnit,
         nproc: state.project.defaults.nproc,
+        charge: state.project.molecule.charge,
+        multiplicity: state.project.molecule.multiplicity,
         checkpoint: `${id.replace(/-/g, '_')}.chk`,
       },
     });
@@ -1716,11 +1721,11 @@ function endPan() {
 /* ── Molecule drawer ──────────────────────────────────────── */
 
 function drawerField(label, key, value, options = {}) {
-  return `<div class="field${options.full ? ' full' : ''}"><label>${esc(label)}</label><input class="input" data-drawer-field="${key}" value="${esc(value)}"></div>`;
+  return `<div class="field${options.full ? ' full' : ''}"><label>${esc(label)}</label><input class="input" data-drawer-field="${key}" aria-label="${esc(label)}" value="${esc(value)}"></div>`;
 }
 
 function drawerSelect(label, key, options, value, full = false) {
-  return `<div class="field${full ? ' full' : ''}"><label>${esc(label)}</label><select class="select" data-drawer-field="${key}">
+  return `<div class="field${full ? ' full' : ''}"><label>${esc(label)}</label><select class="select" data-drawer-field="${key}" aria-label="${esc(label)}">
     ${options.map(([optionValue, optionLabel]) => `<option value="${esc(optionValue)}"${String(value) === String(optionValue) ? ' selected' : ''}>${esc(optionLabel)}</option>`).join('')}
   </select></div>`;
 }
@@ -1880,9 +1885,20 @@ function renderDrawer() {
 function saveMolecule() {
   if (!state.drawer) return;
   const draft = state.drawer.draft;
+  const previousCharge = state.project.molecule.charge;
+  const previousMultiplicity = state.project.molecule.multiplicity;
+  const nextCharge = Number(draft.charge) || 0;
+  const nextMultiplicity = Number(draft.multiplicity) || 1;
   state.project.molecule.smiles = draft.smiles;
-  state.project.molecule.charge = Number(draft.charge) || 0;
-  state.project.molecule.multiplicity = Number(draft.multiplicity) || 1;
+  state.project.molecule.charge = nextCharge;
+  state.project.molecule.multiplicity = nextMultiplicity;
+  // A block that still carried the project default follows the project; an
+  // intentional per-block override is left alone.
+  for (const node of state.project.nodes) {
+    if (!node?.settings) continue;
+    if (node.settings.charge === previousCharge) node.settings.charge = nextCharge;
+    if (node.settings.multiplicity === previousMultiplicity) node.settings.multiplicity = nextMultiplicity;
+  }
   state.project.molecule.fragments = [...draft.fragments];
   state.project.molecule.coords = (draft.coords || []).map((atom) => ({
     element: atom.element,
@@ -1995,11 +2011,7 @@ function validateGraph() {
       // surfaced in the inspector so a blocked export has a specific reason.
       const validity = runValidityChecks({
         settings: node.settings,
-        molecule: {
-          charge: state.project.molecule.charge,
-          multiplicity: state.project.molecule.multiplicity,
-          coords: state.project.molecule.coords?.length ? state.project.molecule.coords : DEMO_WATER,
-        },
+        molecule: moleculeForNode(node),
         parsed: null,
         upstream: validityUpstreamFor(node),
       }, { phase: 'pre', engine: engineId });
@@ -2093,7 +2105,7 @@ function checkpointNameFor(node) {
  * builds the input from, including the labelled demo water fallback.
  */
 function validityForNode(node) {
-  const molecule = state.project.molecule;
+  const molecule = moleculeForNode(node);
   return {
     settings: {
       jobType: node.settings.jobType,
@@ -2102,11 +2114,7 @@ function validityForNode(node) {
       dispersion: node.settings.dispersion,
       disabledChecks: Array.isArray(node.settings.disabledChecks) ? node.settings.disabledChecks : [],
     },
-    molecule: {
-      charge: molecule.charge,
-      multiplicity: molecule.multiplicity,
-      coords: Array.isArray(molecule.coords) && molecule.coords.length > 0 ? molecule.coords : DEMO_WATER,
-    },
+    molecule,
     upstream: validityUpstreamFor(node),
   };
 }
@@ -2173,14 +2181,21 @@ function optConvergenceIssues(node) {
   ];
 }
 
+function moleculeForNode(node) {
+  const settings = node?.settings && typeof node.settings === 'object' ? node.settings : {};
+  const charge = Number.isInteger(settings.charge) ? settings.charge : state.project.molecule.charge;
+  const multiplicity = Number.isInteger(settings.multiplicity) ? settings.multiplicity : state.project.molecule.multiplicity;
+  const coords = Array.isArray(state.project.molecule.coords) && state.project.molecule.coords.length > 0
+    ? state.project.molecule.coords : DEMO_WATER;
+  return { charge, multiplicity, coords };
+}
+
 function settingsForNode(node) {
   const engine = engineOrDefault(state.project?.defaults?.engine);
   // Issue #41: an xTB run must not carry the Gaussian Link 0 fields the
   // inspector hides. Gaussian keeps its settings byte-for-byte.
   return runSettingsFor(engine.id, {
     ...node.settings,
-    charge: state.project.molecule.charge,
-    multiplicity: state.project.molecule.multiplicity,
   });
 }
 
@@ -2192,12 +2207,7 @@ function buildRunInput(node) {
   const issues = engine.id === 'xtb' ? { errors: [] } : tsForceConstantIssues(node);
   if (issues.errors.length > 0) throw new Error(issues.errors[0]);
   const settings = settingsForNode(node);
-  const imported = Array.isArray(state.project.molecule.coords) && state.project.molecule.coords.length > 0;
-  const molecule = {
-    charge: state.project.molecule.charge,
-    multiplicity: state.project.molecule.multiplicity,
-    coords: imported ? state.project.molecule.coords : DEMO_WATER,
-  };
+  const molecule = moleculeForNode(node);
   const blocking = blockingValidityFinding(node, settings, molecule);
   if (blocking) throw new Error(blocking.message);
   const base = safeBase(node.id);
@@ -2443,7 +2453,8 @@ function handleRunEvent(event) {
     state.run.id = record.id || state.run.id;
     setRunState(record.status, record.status);
     renderRunGates(record.gates?.gates || [], record.gates?.validity || null);
-    mountThermochemistryView($('#run-thermo'), record.parsed);
+    mountThermochemistryView($('#run-thermo'), record.parsed, { engine: record.engine });
+    attachParsedRun(record, state.run.nodeId);
     $('#cancel-run')?.setAttribute('disabled', '');
     const verdict = record.gates?.overall || 'unknown';
     const validityVerdict = record.gates?.validity?.overall || null;
@@ -2564,6 +2575,8 @@ function renderQueue() {
   const running = queue.status === 'running';
   const canResume = queue.status === 'paused' || queue.status === 'needs-review';
   const active = running || canResume;
+  const starting = Boolean(queue.starting);
+  $('#run-workflow')?.toggleAttribute('disabled', active || starting);
   $('#pause-workflow')?.toggleAttribute('disabled', !running);
   $('#resume-workflow')?.toggleAttribute('disabled', !canResume);
   $('#cancel-workflow')?.toggleAttribute('disabled', !active);
@@ -2571,6 +2584,18 @@ function renderQueue() {
 
 async function startWorkflow() {
   if (!desktop) { toast('Open the desktop app to queue a workflow.'); return; }
+  if (state.queue.starting) return;
+  state.queue.starting = true;
+  renderQueue();
+  try {
+    await startWorkflowUnlocked();
+  } finally {
+    state.queue.starting = false;
+    renderQueue();
+  }
+}
+
+async function startWorkflowUnlocked() {
   openRunConsole();
   saveRunConfig();
   const dryRun = $('#run-dry').checked;
@@ -2636,6 +2661,31 @@ async function cancelWorkflow() {
   appendRunOutput('\nWorkflow cancellation requested…\n');
 }
 
+function attachParsedRun(record, nodeId) {
+  if (!record?.parsed || !nodeId) return;
+  const node = nodeById(nodeId);
+  if (!node || node.type !== 'calc') return;
+  node.parsed = record.parsed;
+  if (state.selected.type === 'node' && state.selected.id === node.id) renderInspector();
+}
+
+async function attachQueueParsed(queue) {
+  if (!desktop?.listRuns || !queue?.tasks?.length) return;
+  const runs = await desktop.listRuns();
+  if (!Array.isArray(runs)) return;
+  const byId = new Map(runs.map((run) => [run?.id, run]));
+  let changed = false;
+  for (const task of queue.tasks) {
+    if (!task?.runId || !task?.nodeId) continue;
+    const record = byId.get(task.runId);
+    const node = nodeById(task.nodeId);
+    if (!record?.parsed || !node || node.type !== 'calc') continue;
+    node.parsed = record.parsed;
+    changed = true;
+  }
+  if (changed && state.selected.type === 'node') renderInspector();
+}
+
 function handleQueueEvent(event) {
   if (!event) return;
   if (event.type === 'queue-output') {
@@ -2654,6 +2704,7 @@ function handleQueueEvent(event) {
     const verdict = event.queue.status;
     appendRunOutput(`\nWorkflow ${verdict}${event.queue.reason ? ` — ${event.queue.reason}` : ''}\n`);
     setStatusMessage(`Workflow ${verdict}${event.queue.reason ? ` · ${event.queue.reason}` : ''}`);
+    attachQueueParsed(event.queue).catch(() => {});
     toast(`Workflow ${verdict}.`);
     refreshHistory();
   }
@@ -2688,31 +2739,57 @@ async function restoreQueue() {
   }
 }
 
+function applyOpenedProject(result) {
+  if (!result || result.canceled) return false;
+  if (result.error) {
+    toast(`Could not open project: ${result.error.message}`);
+    return false;
+  }
+  state.project = result.project;
+  state.selected = { type: 'project', id: null };
+  markProjectSaved(result.path);
+  const name = $('#project-name-text');
+  if (name) name.textContent = state.project.name || 'Untitled project';
+  const warnings = Array.isArray(result.warnings) ? result.warnings.length : 0;
+  state.statusMessage = result.migrated
+    ? `Opened ${result.path} · migrated from v0.1 to schema v${state.project.schemaVersion}${warnings ? ` · ${warnings} warning${warnings === 1 ? '' : 's'}` : ''}`
+    : `Opened ${result.path}`;
+  renderGraph();
+  renderInspector();
+  updateCounts();
+  updateRunConsoleCopy();
+  toast(result.migrated ? 'Project opened and migrated to schema v1.' : 'Project opened.');
+  return true;
+}
+
+async function openProjectPath(filePath) {
+  if (!desktop) { toast('Open the Electron app to use native project files.'); return; }
+  if (!filePath) return;
+  try {
+    const result = await desktop.openProjectPath(filePath);
+    applyOpenedProject(result);
+  } catch (error) {
+    toast(`Could not open project: ${error.message}`);
+  }
+}
+
 async function openProject() {
   if (!desktop) { toast('Open the Electron app to use native project files.'); return; }
   try {
     const result = await desktop.openProject();
-    if (result.canceled) return;
-    if (result.error) {
-      toast(`Could not open project: ${result.error.message}`);
-      return;
-    }
-    state.project = result.project;
-    state.selected = { type: 'project', id: null };
-    markProjectSaved(result.path);
-    const name = $('#project-name-text');
-    if (name) name.textContent = state.project.name || 'Untitled project';
-    const warnings = Array.isArray(result.warnings) ? result.warnings.length : 0;
-    state.statusMessage = result.migrated
-      ? `Opened ${result.path} · migrated from v0.1 to schema v${state.project.schemaVersion}${warnings ? ` · ${warnings} warning${warnings === 1 ? '' : 's'}` : ''}`
-      : `Opened ${result.path}`;
-    renderGraph();
-    renderInspector();
-    updateCounts();
-    updateRunConsoleCopy();
-    toast(result.migrated ? 'Project opened and migrated to schema v1.' : 'Project opened.');
+    applyOpenedProject(result);
   } catch (error) {
     toast(`Could not open project: ${error.message}`);
+  }
+}
+
+async function openStartupProject() {
+  if (!desktop?.startupProject) return;
+  try {
+    const result = await desktop.startupProject();
+    if (result?.path) await openProjectPath(result.path);
+  } catch {
+    // The seed project is still usable when a startup path cannot be read.
   }
 }
 
@@ -2865,7 +2942,7 @@ function handleAction(action, element) {
     case 'import-log': toast('Runner output is parsed automatically. Native log import is the next milestone.'); break;
     case 'view-output': openRunConsole(); break;
     case 'project-menu': toast('Use Open or Save in the top bar for native project files.'); break;
-    case 'about': toast('NodeChem Studio — the graph is the workspace. The inspector exposes the full job parameter set; the local runner executes one selected block in this v0.1 slice.'); break;
+    case 'about': toast(`NodeChem Studio — the graph is the workspace. The inspector exposes the full job parameter set; the local runner executes one selected block or the whole workflow queue${appVersion ? ` (v${appVersion})` : ''}.`); break;
     default: break;
   }
 }
@@ -3211,12 +3288,32 @@ function wireEvents() {
 // stubbed `document.readyState = 'loading'` does not boot the UI.
 export { calcInspector, state };
 
+function applyAppInfo() {
+  const chip = $('#app-version-chip');
+  const statusTag = $('#app-version-status');
+  if (chip) chip.textContent = appVersion ? `v${appVersion} · desktop preview` : 'desktop preview';
+  if (statusTag) statusTag.textContent = appVersion ? `v${appVersion} · local runner` : 'local runner';
+}
+
+async function loadAppInfo() {
+  if (!desktop?.getInfo) { applyAppInfo(); return; }
+  try {
+    const info = await desktop.getInfo();
+    if (info?.version) appVersion = String(info.version);
+  } catch {
+    // Keep the build-time version; the app can still work without the info call.
+  }
+  applyAppInfo();
+}
+
 function init() {
+  loadAppInfo();
   if (window.innerWidth <= 820) state.inspectorHidden = true;
   readRunConfig();
   updateRunConsoleCopy();
   if (desktop?.onRunEvent) desktop.onRunEvent(handleRunEvent);
   if (desktop?.onQueueEvent) desktop.onQueueEvent(handleQueueEvent);
+  if (desktop?.onOpenProjectPath) desktop.onOpenProjectPath((filePath) => { openProjectPath(filePath); });
   const kbdHint = $('#kbd-hint');
   if (kbdHint) {
     const isMac = /Mac|iPhone|iPad/i.test(navigator.platform || '');
@@ -3229,6 +3326,7 @@ function init() {
   renderInspector();
   renderQueue();
   restoreQueue();
+  openStartupProject();
   refreshHistory();
   setZoom(state.zoom);
   syncModeButtons();

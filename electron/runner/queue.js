@@ -203,6 +203,16 @@ function publicTask(task) {
   return rest;
 }
 
+/**
+ * The disk projection keeps the validity context: a resumed task must be able
+ * to evaluate the same checks as the task that was interrupted. Only the
+ * input text is omitted because it already lives in `inputs/<node>.gjf`.
+ */
+function storedTask(task) {
+  const { inputText, ...rest } = task;
+  return rest;
+}
+
 function publicQueue(queue) {
   return { ...queue, tasks: queue.tasks.map(publicTask) };
 }
@@ -217,6 +227,7 @@ export class QueueManager {
     this.writeChains = new Map();
     this.pendingRuns = new Map();
     this.finishedRuns = new Map();
+    this.starting = false;
     this.unsubscribe = this.runManager.onEvent((event) => this.handleRunEvent(event));
   }
 
@@ -272,7 +283,7 @@ export class QueueManager {
 
   async persist(queue) {
     queue.updatedAt = new Date().toISOString();
-    const snapshot = { ...queue, tasks: queue.tasks.map(publicTask) };
+    const snapshot = { ...queue, tasks: queue.tasks.map(storedTask) };
     // Serialize writes per queue so a slow rename cannot be overtaken by a
     // newer snapshot from the run event handler.
     const previous = this.writeChains.get(queue.id) || Promise.resolve();
@@ -320,7 +331,34 @@ export class QueueManager {
     }
   }
 
+  /**
+   * Only one queue may be active at a time. A paused or needs-review queue is
+   * still unfinished: starting a second queue would run two engine processes
+   * side by side and make the queue panel disagree with the queue on disk.
+   */
+  activeQueueExcept(queueId = null) {
+    for (const queue of this.queues.values()) {
+      if (queue.id === queueId) continue;
+      if (['running', 'paused', 'needs-review'].includes(queue.status)) return queue;
+    }
+    return null;
+  }
+
   async start(payload = {}) {
+    if (this.starting) throw new Error('A workflow queue is already starting.');
+    const active = this.activeQueueExcept();
+    if (active) {
+      throw new Error(`Workflow queue "${active.projectName}" is still ${active.status}. Finish or cancel it before starting another.`);
+    }
+    this.starting = true;
+    try {
+      return await this.startUnlocked(payload);
+    } finally {
+      this.starting = false;
+    }
+  }
+
+  async startUnlocked(payload = {}) {
     const rawTasks = Array.isArray(payload.tasks) ? payload.tasks : [];
     if (rawTasks.length === 0) throw new Error('A queued workflow needs at least one task.');
     if (rawTasks.length > MAX_TASKS) throw new Error(`A queued workflow is limited to ${MAX_TASKS} tasks.`);
@@ -745,6 +783,11 @@ export class QueueManager {
   async resume(queueId) {
     const queue = this.queues.get(queueId);
     if (!queue) throw new Error('Unknown workflow queue.');
+    if (this.starting) throw new Error('A workflow queue is already starting.');
+    const active = this.activeQueueExcept(queueId);
+    if (active) {
+      throw new Error(`Workflow queue "${active.projectName}" is still ${active.status}. Finish or cancel it before resuming another.`);
+    }
     if (!['paused', 'needs-review'].includes(queue.status)) return { resumed: false };
     for (const task of queue.tasks) {
       if (task.status === 'interrupted') {

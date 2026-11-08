@@ -23,7 +23,7 @@ import {
   harmonicEntropyJPerMolK,
   quasiRRHOEntropyJPerMolK,
 } from '../src/shared/thermochemistry.js';
-import { thermochemistryPanelHtml } from '../src/renderer/thermochemistryView.js';
+import { mountThermochemistryView, thermochemistryPanelHtml } from '../src/renderer/thermochemistryView.js';
 
 const fixtureText = readFileSync(
   fileURLToPath(new URL('./fixtures/synthetic-lowmode-freq.out', import.meta.url)),
@@ -351,5 +351,18 @@ describe('thermochemistry view rows', () => {
     expect(html).toContain('Corrected G');
     expect(html).toContain('unknown');
     expect(html).toContain('Quasi-RRHO is unavailable');
+  });
+
+  it('does not offer Gaussian corrections for an xTB thermochemistry panel', () => {
+    const container = {
+      hidden: true,
+      innerHTML: '',
+      querySelectorAll: () => [],
+    };
+    mountThermochemistryView(container, { thermochemistry: { freeEnergyHartree: -1 } }, { engine: 'xtb' });
+    expect(container.hidden).toBe(false);
+    expect(container.innerHTML).toContain('mRRHO');
+    expect(container.innerHTML).not.toContain('Quasi-RRHO');
+    expect(container.innerHTML).not.toContain('Standard state');
   });
 });

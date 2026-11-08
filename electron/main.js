@@ -14,6 +14,7 @@ import { parseProjectText, stringifyProject, summarizeErrors } from '../src/shar
 import {
   PROJECT_EXTENSIONS,
   classifySavePath,
+  isProjectPath,
   projectFileName,
   withProjectExtension,
 } from '../src/shared/projectFile.js';
@@ -23,8 +24,55 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const isDev = process.argv.includes('--dev');
 const DEV_URL = 'http://127.0.0.1:5173';
-// Injected by the packaging/launch environment. No git call and no network.
-const APP_COMMIT = String(process.env.GIT_COMMIT || '').trim() || 'unknown';
+// Injected by the build (`scripts/stamp-build-info.mjs`) or by the launch
+// environment. No git call and no network at runtime.
+function packagedCommit() {
+  try {
+    const info = JSON.parse(fs.readFileSync(path.join(__dirname, 'build-info.json'), 'utf8'));
+    return String(info?.commit || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+const APP_COMMIT = String(process.env.GIT_COMMIT || '').trim() || packagedCommit() || 'unknown';
+
+/** Normalize a CLI/desktop file argument; `%U` may hand us a file:// URL. */
+function projectPathFromArg(arg) {
+  let value = typeof arg === 'string' ? arg.trim() : '';
+  if (!value) return '';
+  if (value.startsWith('file://')) {
+    try {
+      value = fileURLToPath(value);
+    } catch {
+      return '';
+    }
+  }
+  return isProjectPath(value) ? path.resolve(value) : '';
+}
+
+/** A double-clicked `.ncs` arrives as argv on Windows/Linux (and open-file on macOS). */
+function projectPathFromArgv(argv) {
+  for (const arg of Array.isArray(argv) ? argv : []) {
+    const projectPath = projectPathFromArg(arg);
+    if (projectPath) return projectPath;
+  }
+  return null;
+}
+
+let startupProjectPath = projectPathFromArgv(process.argv);
+
+app.on('open-file', (event, filePath) => {
+  if (!isProjectPath(filePath)) return;
+  event.preventDefault();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('project:open-path', filePath);
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  } else {
+    startupProjectPath = path.resolve(filePath);
+  }
+});
 
 // Electron derives the userData folder from the package name, but pin it
 // explicitly so the storage location is a documented constant of the format
@@ -121,6 +169,29 @@ async function chooseExecutable(config = {}) {
   return result.canceled ? null : result.filePaths[0];
 }
 
+async function readProjectFile(filePath) {
+  const target = projectPathFromArg(filePath);
+  if (!target) {
+    return { canceled: false, error: { message: `A project file must end in ${PROJECT_EXTENSIONS[0]}.` } };
+  }
+  try {
+    const text = await fsp.readFile(target, 'utf8');
+    const parsed = parseProjectText(text);
+    if (!parsed.ok) {
+      return { canceled: false, path: target, error: projectFailure(parsed) };
+    }
+    return {
+      canceled: false,
+      path: target,
+      project: parsed.project,
+      migrated: parsed.migrated,
+      warnings: parsed.warnings,
+    };
+  } catch (error) {
+    return { canceled: false, error: { message: `Could not read ${target}: ${error.message}` } };
+  }
+}
+
 async function openProject() {
   const result = await dialog.showOpenDialog(mainWindow, {
     title: 'Open NodeChem Studio project',
@@ -128,19 +199,7 @@ async function openProject() {
     filters: [{ name: 'NodeChem Studio project', extensions: PROJECT_EXTENSIONS }],
   });
   if (result.canceled) return { canceled: true };
-  const filePath = result.filePaths[0];
-  const text = await fsp.readFile(filePath, 'utf8');
-  const parsed = parseProjectText(text);
-  if (!parsed.ok) {
-    return { canceled: false, path: filePath, error: projectFailure(parsed) };
-  }
-  return {
-    canceled: false,
-    path: filePath,
-    project: parsed.project,
-    migrated: parsed.migrated,
-    warnings: parsed.warnings,
-  };
+  return readProjectFile(result.filePaths[0]);
 }
 
 function suggestedProjectName(project) {
@@ -279,8 +338,11 @@ app.whenReady().then(async () => {
     platform: process.platform,
     arch: process.arch,
     userData: app.getPath('userData'),
+    commit: APP_COMMIT,
   }));
   ipcMain.handle('project:open', openProject);
+  ipcMain.handle('project:startup', () => ({ path: startupProjectPath }));
+  ipcMain.handle('project:open-path', (_event, filePath) => readProjectFile(filePath));
   ipcMain.handle('project:save', (_event, project, filePath) => saveProject(project, filePath));
   ipcMain.handle('input:export', (_event, payload) => exportGaussianInput(payload));
   ipcMain.handle('cluster:export', (_event, payload) => exportClusterScripts(payload));

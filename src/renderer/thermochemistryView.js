@@ -81,9 +81,18 @@ export function thermochemistryPanelHtml(report) {
 /**
  * Mount the panel and keep its two correction toggles live. Passing `null`
  * (a new run, or an output with no thermochemistry) hides and clears it.
+ * xTB already reports a free energy with mRRHO entropy; the Gaussian
+ * quasi-RRHO / standard-state corrections must not be offered on top of it.
  */
-export function mountThermochemistryView(container, parsed) {
+export function mountThermochemistryView(container, parsed, { engine = null } = {}) {
   if (!container) return;
+  if (engine === 'xtb') {
+    container.hidden = false;
+    container.innerHTML = '<div class="run-thermo-head"><span>Thermochemistry</span><span>xTB mRRHO</span></div>'
+      + '<p class="run-thermo-note">xTB free energies already use the mRRHO entropy treatment; '
+      + 'Gaussian quasi-RRHO and 1 atm → 1 M corrections do not apply.</p>';
+    return;
+  }
   const thermochemistry = parsed?.thermochemistry;
   const hasThermochemistry = thermochemistry
     && (Number.isFinite(thermochemistry.freeEnergyHartree)

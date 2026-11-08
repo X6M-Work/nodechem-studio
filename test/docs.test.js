@@ -93,15 +93,17 @@ describe('public documentation — links', () => {
 });
 
 describe('public documentation — copy consistency', () => {
-  it('advertises the packaged version in the shell', () => {
+  it('renders the packaged version in the shell at runtime, not a hard-coded chip', () => {
     const html = read('index.html');
-    const chips = html.match(/v\d+\.\d+(?:\.\d+)?/g) || [];
-    expect(chips.length).toBeGreaterThan(0);
-    const expected = `v${pkg.version}`;
-    for (const chip of chips) {
-      expect(chip === expected || chip === `v${pkg.version.split('.').slice(0, 2).join('.')}`,
-        `index.html advertises ${chip}, package.json is ${pkg.version}`).toBe(true);
-    }
+    // The chip used to hard-code "v0.1" and went stale at every release. It is
+    // now filled from the build-time version and corrected from app:info.
+    expect(html).not.toMatch(/v\d+\.\d+/);
+    expect(html).toContain('id="app-version-chip"');
+    expect(html).toContain('id="app-version-status"');
+    expect(read('vite.config.js')).toContain('__APP_VERSION__: JSON.stringify(pkg.version)');
+    const app = read('src/renderer/app.js');
+    expect(app).toContain('typeof __APP_VERSION__');
+    expect(app).toContain('info?.version');
   });
 
   it('does not repeat the xTB claims that issues #40 and #42 made false', () => {

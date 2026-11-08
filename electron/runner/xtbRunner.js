@@ -35,6 +35,35 @@ export class XtbRunner {
     return null;
   }
 
+  /**
+   * Resolve the thread count xTB should use. An explicit value from the
+   * inspector wins; otherwise inherit OMP_NUM_THREADS, then fall back to one
+   * deterministic thread. An invalid explicit value is an error, not a silent
+   * fallback: the user asked for something xTB cannot honour.
+   */
+  static threadsFor(configured, environmentValue) {
+    const text = String(configured ?? '').trim();
+    if (text !== '') {
+      const count = Number(text);
+      if (!Number.isInteger(count) || count < 1 || count > 256) {
+        throw new Error('xTB thread count must be an integer between 1 and 256.');
+      }
+      return count;
+    }
+    const inherited = Number(environmentValue);
+    return Number.isInteger(inherited) && inherited > 0 ? inherited : 1;
+  }
+
+  /** The child environment, including the thread count mapped to OMP. */
+  static environmentFor({ executable, threads = null, env = process.env } = {}) {
+    const exeDir = path.dirname(executable);
+    return {
+      ...env,
+      PATH: `${exeDir}${path.delimiter}${env.PATH || ''}`,
+      OMP_NUM_THREADS: String(XtbRunner.threadsFor(threads, env.OMP_NUM_THREADS)),
+    };
+  }
+
   async run({
     executable,
     argv = [],
@@ -43,14 +72,9 @@ export class XtbRunner {
     onOutput = () => {},
     timeoutMs = 0,
     xtbPath = null,
+    threads = null,
   }) {
-    const exeDir = path.dirname(executable);
-    const env = {
-      ...process.env,
-      PATH: `${exeDir}${path.delimiter}${process.env.PATH || ''}`,
-      // Deterministic thread count unless the user configured one.
-      OMP_NUM_THREADS: String(process.env.OMP_NUM_THREADS || 1),
-    };
+    const env = XtbRunner.environmentFor({ executable, threads });
     const parameterPath = XtbRunner.parameterPathFor(executable, xtbPath);
     if (parameterPath) env.XTBPATH = parameterPath;
 

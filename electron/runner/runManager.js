@@ -10,6 +10,7 @@ import { makeFixtureOutput } from '../../src/shared/fixtureOutput.js';
 import { methodBlockFor } from '../../src/shared/gaussianInput.js';
 import { normaliseAppInfo, provenanceKindFor } from '../../src/shared/provenance.js';
 import { engineFor, DEFAULT_ENGINE_ID } from '../../src/shared/engines/index.js';
+import { xtbSolvationFromArgv } from '../../src/shared/engines/xtb.js';
 import { normalizeValidityContext, runValidityChecks } from '../../src/shared/validityChecks.js';
 
 const SAFE_INPUT = /^[A-Za-z0-9._-]+\.(gjf|com)$/i;
@@ -146,6 +147,10 @@ export class RunManager {
         // must be able to say "optimization + frequency" from run.json alone.
         jobType,
         method,
+        // Issue #42: xTB solvation is recorded beside the method so a reader
+        // does not have to parse argv to know the model and solvent. Gaussian
+        // records keep their existing shape.
+        ...(engine.id === 'xtb' ? { solvation: xtbSolvationFromArgv(argv) } : {}),
         input: { name: payload.inputName, bytes: inputBytes },
         output: null,
       },
@@ -231,6 +236,7 @@ export class RunManager {
           outputName: payload.outputName,
           timeoutMs,
           xtbPath: payload.xtbPath || null,
+          threads: payload.settings?.xtbThreads ?? null,
           onOutput,
         })
         : await runner.run({

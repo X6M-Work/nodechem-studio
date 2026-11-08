@@ -319,6 +319,22 @@ export function isSafeXtbInputName(name) {
   return SAFE_INPUT.test(String(name));
 }
 
+/**
+ * Read the solvation choice back from the argv that actually ran. The argv is
+ * the authoritative record: it is what xTB consumed and what run.json stores,
+ * so provenance cannot disagree with the invocation.
+ */
+export function xtbSolvationFromArgv(argv = []) {
+  const args = Array.isArray(argv) ? argv.map(String) : [];
+  for (const [flag, model] of [['--alpb', 'ALPB'], ['--gbsa', 'GBSA']]) {
+    const index = args.indexOf(flag);
+    if (index === -1) continue;
+    const solvent = String(args[index + 1] ?? '').trim();
+    if (solvent && !solvent.startsWith('--')) return { model, solvent, flag };
+  }
+  return null;
+}
+
 export function isSafeXtbOutputName(name) {
   return SAFE_OUTPUT.test(String(name));
 }

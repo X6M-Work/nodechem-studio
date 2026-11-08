@@ -127,7 +127,7 @@ const SETTINGS_KEYS = new Set([
   'multiplicity', 'dispersion', 'scf', 'grid', 'population', 'verbosity', 'solvation',
   'solvationModel', 'solvent', 'customKeywords', 'ircDirection', 'optConvergence',
   'forceConstants', 'gates', 'disabledChecks',
-  'xtbMethod', 'xtbOptLevel',
+  'xtbMethod', 'xtbOptLevel', 'xtbThreads',
 ]);
 const GATE_KEYS = new Set(['termination', 'scf', 'imaginary', 'minMagnitude', 'thermo', 'finalEnergy']);
 
@@ -166,6 +166,7 @@ export function defaultSettings(overrides = {}) {
     ircDirection: 'forward',
     xtbMethod: 'gfn2',
     xtbOptLevel: 'normal',
+    xtbThreads: '',
     optConvergence: DEFAULT_OPT_CONVERGENCE,
     forceConstants: DEFAULT_TS_FORCE_CONSTANTS,
     gates: defaultGates(),
@@ -328,6 +329,12 @@ function readMemory(c, value, path, { legacy = false, fallback = '4' } = {}) {
     return fallback;
   }
   return String(number);
+}
+
+/** Optional OMP_NUM_THREADS override: blank means "inherit the environment". */
+function readXtbThreads(c, value, path, { legacy = false, fallback = '' } = {}) {
+  if (value === undefined || value === null || value === '') return fallback;
+  return readInteger(c, value, path, { legacy, fallback, min: 1, max: 256 });
 }
 
 /* ── Sections ─────────────────────────────────────────────── */
@@ -500,6 +507,7 @@ function normalizeSettings(c, raw, path, legacy) {
     ircDirection: readEnum(c, source.ircDirection, IRC_DIRECTIONS, `${path}.ircDirection`, { legacy, fallback: 'forward' }),
     xtbMethod: readEnum(c, source.xtbMethod, XTB_METHOD_IDS, `${path}.xtbMethod`, { legacy, fallback: 'gfn2' }),
     xtbOptLevel: readEnum(c, source.xtbOptLevel, XTB_OPT_LEVELS, `${path}.xtbOptLevel`, { legacy, fallback: 'normal' }),
+    xtbThreads: readXtbThreads(c, source.xtbThreads, `${path}.xtbThreads`, { legacy, fallback: '' }),
     optConvergence: readEnum(c, source.optConvergence, OPT_CONVERGENCE_IDS, `${path}.optConvergence`, { legacy, fallback: DEFAULT_OPT_CONVERGENCE }),
     forceConstants: readEnum(c, source.forceConstants, TS_FORCE_CONSTANT_IDS, `${path}.forceConstants`, { legacy, fallback: DEFAULT_TS_FORCE_CONSTANTS }),
     gates: normalizeGates(c, source.gates, `${path}.gates`, legacy),

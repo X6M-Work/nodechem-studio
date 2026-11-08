@@ -46,6 +46,9 @@ const ROUTE_SETTING_KEYS = [
   // xTB's method vocabulary; without these a queued run cannot record the
   // Hamiltonian or optimisation level it actually used (#39).
   'xtbMethod', 'xtbOptLevel',
+  // Thread count is xTB's only resource setting; carry it so a queued run does
+  // not silently fall back to the default OMP_NUM_THREADS (#41).
+  'xtbThreads',
 ];
 
 /**

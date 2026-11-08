@@ -10,7 +10,7 @@ import {
 } from '../shared/gaussianInput.js';
 import { defaultGates, defaultSettings } from '../shared/projectSchema.js';
 import { ENGINES, engineOrDefault } from '../shared/engines/index.js';
-import { XTB_METHODS, XTB_OPT_LEVELS, XTB_SOLVATION_MODELS } from '../shared/engines/xtb.js';
+import { XTB_METHODS, XTB_OPT_LEVELS, XTB_SOLVATION_MODELS, XTB_SOLVENTS } from '../shared/engines/xtb.js';
 import {
   MODERN_ROUTE_PRESET,
   ROUTE_PRESETS,
@@ -41,6 +41,12 @@ import { mountThermochemistryView } from './thermochemistryView.js';
 import { installResultsView } from './resultsView.js';
 import { mountStructureViewer } from './structureViewer.js';
 import { formatPreflightReport } from './preflightReport.js';
+import {
+  runSettingsFor,
+  showsCheckpointHandoff,
+  showsGaussianResources,
+  showsXtbThreads,
+} from './inspectorFields.js';
 
 const desktop = window.desktop || null;
 
@@ -798,6 +804,8 @@ function calcInspector(node) {
   const checkpointSource = node.checkpointFrom ? nodeById(node.checkpointFrom) : null;
   const engine = engineOrDefault(state.project?.defaults?.engine);
   const isXtb = engine.id === 'xtb';
+  const gaussianResources = showsGaussianResources(engine.id);
+  const checkpointHandoff = showsCheckpointHandoff(engine.id);
   const routeLines = [];
   if (isXtb) {
     // Show the real invocation, or say plainly that xTB cannot run this block.
@@ -856,8 +864,8 @@ function calcInspector(node) {
   const jobGroup = group('Job', s.jobType, true, [
     inputField('Title', 'title', node.title, { full: true }),
     selectField('Job type', 'jobType', JOB_TYPES, s.jobType),
-    s.jobType === 'IRC' ? selectField('IRC direction', 'ircDirection', IRC_DIRECTIONS, s.ircDirection) : '',
-    isOptJob(s.jobType)
+    !isXtb && s.jobType === 'IRC' ? selectField('IRC direction', 'ircDirection', IRC_DIRECTIONS, s.ircDirection) : '',
+    !isXtb && isOptJob(s.jobType)
       ? selectField(
         'Optimization convergence',
         'optConvergence',
@@ -865,15 +873,16 @@ function calcInspector(node) {
         optConvergenceFor(s),
       )
       : '',
-    tsForceField,
-    `<div class="field"><label>Memory</label><div class="field-row">
+    !isXtb ? tsForceField : '',
+    gaussianResources ? `<div class="field"><label>Memory</label><div class="field-row">
       <input class="input" type="number" min="1" max="512" data-node-field="memory" value="${esc(s.memory)}">
       <select class="select" data-node-field="memoryUnit">${MEMORY_UNITS.map(([value, label]) => `<option value="${value}"${s.memoryUnit === value ? ' selected' : ''}>${label}</option>`).join('')}</select>
-    </div></div>`,
-    inputField('Cores (nproc)', 'nproc', s.nproc, { type: 'number', min: 1, max: 256 }),
-    isXtb
+    </div></div>` : '',
+    gaussianResources ? inputField('Cores (nproc)', 'nproc', s.nproc, { type: 'number', min: 1, max: 256 }) : '',
+    gaussianResources ? inputField('Checkpoint file', 'checkpoint', s.checkpoint || chkName(node.id), { full: true }) : '',
+    !gaussianResources
       ? '<div class="field full"><span class="inspector-note">xTB writes <code>xtbrestart</code> in the run folder; a checkpoint hand-off copies that file.</span></div>'
-      : inputField('Checkpoint file', 'checkpoint', s.checkpoint || chkName(node.id), { full: true }),
+      : '',
   ].join(''));
 
   const methodGroup = group('Method & basis', `${s.method}/${s.basis}`, true, [
@@ -891,10 +900,31 @@ function calcInspector(node) {
     selectField('Output verbosity', 'verbosity', VERBOSITY, s.verbosity),
   ].join(''));
 
-  const solvationGroup = group('Solvation', s.solvation ? `${s.solvationModel} · ${s.solvent}` : 'off', s.solvation, [
+  const gaussianSolvationGroup = group('Solvation', s.solvation ? `${s.solvationModel} · ${s.solvent}` : 'off', s.solvation, [
     switchRow('Implicit solvation', 'PCM / SMD / CPCM', 'solvation', s.solvation),
     selectField('Model', 'solvationModel', SOLVATION_MODELS, s.solvationModel),
     selectField('Solvent', 'solvent', SOLVENTS, s.solvent),
+  ].join(''));
+
+  // Issue #42: xTB has its own solvation models and identifiers. The group is
+  // always rendered; only the Gaussian wording and model list are replaced.
+  const xtbSolvationOn = Boolean(s.solvation);
+  const storedXtbModel = String(s.solvationModel || '').toUpperCase();
+  const xtbModelValid = XTB_SOLVATION_MODELS.includes(storedXtbModel);
+  const xtbModel = xtbModelValid ? storedXtbModel : (xtbSolvationOn ? '' : 'ALPB');
+  const xtbSolventLabels = Object.keys(XTB_SOLVENTS[xtbModel] || XTB_SOLVENTS.ALPB);
+  const storedXtbSolvent = String(s.solvent || '');
+  const xtbSolventValid = xtbSolventLabels.includes(storedXtbSolvent);
+  const xtbSolvent = xtbSolventValid ? storedXtbSolvent : (xtbSolvationOn ? '' : 'Water');
+  const xtbSolvationOptions = XTB_SOLVATION_MODELS.map((model) => [model, model]);
+  if (xtbSolvationOn && !xtbModelValid) xtbSolvationOptions.unshift(['', 'Choose ALPB or GBSA']);
+  const xtbSolventOptions = xtbSolventLabels.map((label) => [label, label]);
+  if (xtbSolvationOn && !xtbSolventValid) xtbSolventOptions.unshift(['', 'Choose a solvent']);
+  const xtbSolvationGroup = group('Solvation', xtbSolvationOn ? `${xtbModel || 'unset'} · ${xtbSolvent || 'unset'}` : 'off', xtbSolvationOn, [
+    switchRow('Implicit solvation', 'ALPB / GBSA', 'solvation', s.solvation),
+    selectField('Model', 'solvationModel', xtbSolvationOptions, xtbModel),
+    selectField('Solvent', 'solvent', xtbSolventOptions, xtbSolvent),
+    '<div class="field full"><span class="inspector-note">xTB implements ALPB and GBSA implicit solvation; the solvent is passed by its xTB identifier.</span></div>',
   ].join(''));
 
   const moleculeGroup = group('Molecule', `${state.project.molecule.fragments.length} fragments`, false, [
@@ -934,7 +964,7 @@ function calcInspector(node) {
 
   const dependencyGroup = group('Dependencies', `${ins.length} input${ins.length === 1 ? '' : 's'}`, true, [
     `<div class="full">${incomingList(node.id)}</div>`,
-    ins.length ? `<div class="field full"><label>Checkpoint hand-off</label><select class="select" data-node-field="checkpointFrom">
+    checkpointHandoff && ins.length ? `<div class="field full"><label>Checkpoint hand-off</label><select class="select" data-node-field="checkpointFrom">
       <option value="">None</option>
       ${ins.map((edge) => {
         const source = nodeById(edge.from);
@@ -960,6 +990,9 @@ function calcInspector(node) {
   const xtbGroup = group('xTB', `${(XTB_METHODS.find((item) => item.id === (s.xtbMethod || 'gfn2')) || {}).label || 'GFN2-xTB'} · ${s.xtbOptLevel || 'normal'}`, true, [
     selectField('Hamiltonian', 'xtbMethod', XTB_METHODS.map((item) => [item.id, item.label]), s.xtbMethod || 'gfn2'),
     selectField('Optimisation level', 'xtbOptLevel', XTB_OPT_LEVELS.map((level) => [level, level]), s.xtbOptLevel || 'normal'),
+    showsXtbThreads(engine.id)
+      ? inputField('Threads (OMP_NUM_THREADS)', 'xtbThreads', s.xtbThreads ?? '', { type: 'number', min: 1, max: 256 })
+      : '',
     '<div class="full"><div class="callout">This project runs on xTB. Gaussian route fields (method, basis, dispersion, SCF, grid, population) are ignored. GFN2-xTB includes D4 dispersion; there is no transition-state or IRC support.</div></div>',
   ].join(''));
   const headRoute = isXtb ? `${(XTB_METHODS.find((item) => item.id === (s.xtbMethod || 'gfn2')) || {}).label || 'xTB'} · ${s.jobType}` : routeShort(s);
@@ -977,7 +1010,7 @@ function calcInspector(node) {
     <div class="code-block" style="margin-bottom:10px">${routeLines.map((line) => `<div>${line}</div>`).join('')}</div>
     ${jobGroup}
     ${isXtb ? xtbGroup : methodGroup}
-    ${isXtb ? '' : solvationGroup}
+    ${isXtb ? xtbSolvationGroup : gaussianSolvationGroup}
     ${moleculeGroup}
     ${gatesGroup}
     ${isXtb ? '' : validityGroup}
@@ -1338,6 +1371,7 @@ function addBlock(type) {
 /* ── Node and edge editing ────────────────────────────────── */
 
 function updateNodeField(node, key, value) {
+  const isXtb = engineOrDefault(state.project?.defaults?.engine).id === 'xtb';
   if (key === 'title') {
     node.title = String(value).trim() || node.title;
     return;
@@ -1363,8 +1397,22 @@ function updateNodeField(node, key, value) {
     return;
   }
   if (key in node.settings) {
-    if (key === 'solvation') node.settings.solvation = Boolean(value);
-    else if (['charge', 'multiplicity', 'imaginary', 'minMagnitude'].includes(key)) {
+    if (key === 'solvation') {
+      node.settings.solvation = Boolean(value);
+      if (isXtb && node.settings.solvation) {
+        const model = String(node.settings.solvationModel || '').toUpperCase();
+        node.settings.solvationModel = XTB_SOLVATION_MODELS.includes(model) ? model : 'ALPB';
+        const solvents = XTB_SOLVENTS[node.settings.solvationModel] || {};
+        if (!Object.prototype.hasOwnProperty.call(solvents, node.settings.solvent)) node.settings.solvent = 'Water';
+      }
+    } else if (key === 'solvationModel' && isXtb) {
+      node.settings.solvationModel = value;
+      const solvents = XTB_SOLVENTS[value] || {};
+      if (!Object.prototype.hasOwnProperty.call(solvents, node.settings.solvent)) node.settings.solvent = 'Water';
+    } else if (key === 'xtbThreads') {
+      const count = Number(value);
+      node.settings.xtbThreads = value === '' || !Number.isInteger(count) || count < 1 || count > 256 ? '' : count;
+    } else if (['charge', 'multiplicity', 'imaginary', 'minMagnitude'].includes(key)) {
       node.settings[key] = value === '' ? (key === 'imaginary' || key === 'minMagnitude' ? null : 0) : Number(value);
     } else if (key === 'jobType') {
       node.settings.jobType = value;
@@ -1846,9 +1894,11 @@ function saveMolecule() {
   // An xTB project cannot carry a Gaussian-only implicit-solvation model.
   if (state.project.defaults.engine === 'xtb') {
     for (const node of state.project.nodes) {
-      if (node?.settings && node.settings.solvation && !XTB_SOLVATION_MODELS.includes(String(node.settings.solvationModel || '').toUpperCase())) {
-        node.settings.solvationModel = 'ALPB';
-      }
+      if (!node?.settings || !node.settings.solvation) continue;
+      const model = String(node.settings.solvationModel || '').toUpperCase();
+      node.settings.solvationModel = XTB_SOLVATION_MODELS.includes(model) ? model : 'ALPB';
+      const solvents = XTB_SOLVENTS[node.settings.solvationModel] || {};
+      if (!Object.prototype.hasOwnProperty.call(solvents, node.settings.solvent)) node.settings.solvent = 'Water';
     }
   }
   closeDrawer();
@@ -2112,11 +2162,14 @@ function optConvergenceIssues(node) {
 }
 
 function settingsForNode(node) {
-  return {
+  const engine = engineOrDefault(state.project?.defaults?.engine);
+  // Issue #41: an xTB run must not carry the Gaussian Link 0 fields the
+  // inspector hides. Gaussian keeps its settings byte-for-byte.
+  return runSettingsFor(engine.id, {
     ...node.settings,
     charge: state.project.molecule.charge,
     multiplicity: state.project.molecule.multiplicity,
-  };
+  });
 }
 
 function buildRunInput(node) {
@@ -3121,6 +3174,10 @@ function wireEvents() {
 }
 
 /* ── Boot ─────────────────────────────────────────────────── */
+
+// Exported for the Node-side inspector tests: importing this module with a
+// stubbed `document.readyState = 'loading'` does not boot the UI.
+export { calcInspector, state };
 
 function init() {
   if (window.innerWidth <= 820) state.inspectorHidden = true;

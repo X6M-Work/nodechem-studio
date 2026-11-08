@@ -176,6 +176,28 @@
   <section class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"></section>
 </div>
 
+<template id="structure-viewer-template">
+  <section class="structure-viewer" data-structure-viewer aria-label="Parsed structure viewer">
+    <div class="structure-viewer-head">
+      <div>
+        <div class="section-label">Final geometry</div>
+        <span class="structure-source" data-structure-source></span>
+      </div>
+      <button type="button" class="btn small" data-structure-fit>Fit</button>
+    </div>
+    <div class="structure-stage">
+      <canvas class="structure-canvas" data-structure-canvas width="640" height="260"></canvas>
+    </div>
+    <div data-structure-legend></div>
+    <p class="structure-note" data-structure-notice hidden></p>
+    <div class="structure-modes" data-structure-modes hidden>
+      <label>Normal mode <select class="select" data-structure-mode></select></label>
+      <label>Amplitude <input type="range" min="0.1" max="1.5" step="0.05" value="0.6" data-structure-amplitude></label>
+      <button type="button" class="btn small" data-structure-play>Play</button>
+    </div>
+  </section>
+</template>
+
 <div class="prototype-bar" aria-label="Desktop view controls">
   <span class="proto-label">View</span>
   <div class="segmented small" role="group" aria-label="Inspector layout">

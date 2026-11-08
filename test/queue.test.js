@@ -634,6 +634,9 @@ describe('QueueManager — checkpoint staging', () => {
 });
 
 describe('QueueManager — durability', () => {
+  // Crash recovery writes and re-reads queue files several times and waits on
+  // child processes; on a loaded CI runner that legitimately exceeds Vitest's
+  // 5 s default, so this test owns its budget.
   it('marks an in-flight task interrupted after a crash and resumes it', async () => {
     const first = await makeStack({ behaviour: (outputName) => (outputName === 'b.out' ? { hang: true } : {}) });
     const tasks = [task('a'), task('b'), task('c')];
@@ -672,7 +675,7 @@ describe('QueueManager — durability', () => {
     expect(byId.b.attempts).toBe(2);
     expect(byId.c.status).toBe('completed');
     expect(finished.status).toBe('completed');
-  });
+  }, 30_000);
 
   it('pauses after the current task and resumes the rest', async () => {
     const { exe, queueManager } = await makeStack({

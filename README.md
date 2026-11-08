@@ -16,7 +16,7 @@ installed on. Without either, the dry run exercises the whole pipeline on a labe
 
 ![NodeChem Studio: node graph with the Reactant frequency inspector open](docs/images/studio-overview.png)
 
-**Status: v0.2.0 — early preview.** The graph, the durable workflow queue, the dry-run path, the
+**Status: v0.2.1 — early preview.** The graph, the durable workflow queue, the dry-run path, the
 project format, the results surface, validity checks, the methods paragraph, run-bundle export, the
 structure viewer and both engines' input builders and parsers are implemented and covered by tests.
 What has *not* been proven is a real run: no licensed Gaussian job and no real xTB job has been
@@ -41,8 +41,8 @@ you trust a result.
 
 | Platform | How |
 | --- | --- |
-| Windows 10/11 x64 | Run `nodechem-studio-0.2.0-x64.exe` from the release. Per-user install, unsigned — SmartScreen warns once. |
-| Linux x64 | `chmod +x nodechem-studio-0.2.0-x86_64.AppImage` and run it. Unsigned. |
+| Windows 10/11 x64 | Run `nodechem-studio-0.2.1-x64.exe` from the release. Per-user install, unsigned — SmartScreen warns once. |
+| Linux x64 | `chmod +x nodechem-studio-0.2.1-x86_64.AppImage` and run it. Unsigned. |
 | From source | Node 22+, then `npm ci && npm run dev`. |
 
 Neither artifact installs Gaussian or xTB. See [Install](docs/guide/install.md) for the data

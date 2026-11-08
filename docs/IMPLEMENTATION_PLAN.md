@@ -109,7 +109,7 @@ Success at v1:
 | Structure import | `.xyz`, `.mol`/`.sdf`, `.gjf`/`.com` with element/coordinate/parity validation; project-level geometry feeds every `.gjf` | `test/structureImport.test.js`, `test/projectSchema.test.js`, `test/gaussianInput.test.js` |
 | Dry run | labelled synthetic output, full parser/gate path | run console PASS evidence |
 | Persistence | native Open/Save, schema v1 validation, v0.1 migration, canonical save | `test/projectSchema.test.js` |
-| Packaging | electron-builder NSIS config; `npm run dist` produces `release/nodechem-studio-0.2.0-x64.exe`; CI workflow builds it on windows-latest. Linux AppImage target plus a `Linux package` CI workflow | `.github/workflows/windows-package.yml`, `.github/workflows/linux-package.yml`, `package.json` |
+| Packaging | electron-builder NSIS config; `npm run dist` produces `release/nodechem-studio-0.2.1-x64.exe`; CI workflow builds it on windows-latest. Linux AppImage target plus a `Linux package` CI workflow | `.github/workflows/windows-package.yml`, `.github/workflows/linux-package.yml`, `package.json` |
 
 ### Verified gaps
 

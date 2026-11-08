@@ -37,6 +37,7 @@ import {
 import { runClusterAction } from './clusterExport.js';
 import { provenanceSummary, syncVerifyButton, verifyRunInput } from './provenance.js';
 import { mountThermochemistryView } from './thermochemistryView.js';
+import { installResultsView } from './resultsView.js';
 import { formatPreflightReport } from './preflightReport.js';
 
 const desktop = window.desktop || null;
@@ -2459,7 +2460,7 @@ function renderQueue() {
           : '';
         const meta = [task.status, task.attempts > 1 ? `×${task.attempts}` : '', retry, branch, task.gateVerdict ? `gates ${task.gateVerdict}` : '']
           .filter(Boolean).join(' · ');
-        return `<li class="queue-item is-${esc(task.status)}" title="${esc(task.error || task.reason || '')}"><span class="queue-dot"></span><span class="queue-title">${esc(task.title)}</span><span class="queue-meta">${esc(meta)}</span></li>`;
+        return `<li class="queue-item is-${esc(task.status)}" data-run-id="${esc(task.runId || '')}" title="${esc(task.error || task.reason || '')}"><span class="queue-dot"></span><span class="queue-title">${esc(task.title)}</span><span class="queue-meta">${esc(meta)}</span></li>`;
       }).join('')
       : '<li class="queue-empty">Queue the workflow to run calculation blocks in dependency order, one at a time.</li>';
   }
@@ -2569,7 +2570,7 @@ async function refreshHistory() {
       ? runs.map((run) => {
         const meta = [run.status, run.gates?.overall ? `gates ${run.gates.overall}` : '', run.dryRun ? 'dry' : 'Gaussian']
           .filter(Boolean).join(' · ');
-        return `<li class="queue-item is-${esc(run.status)}" title="${esc(run.runDir || '')}"><span class="queue-dot"></span><span class="queue-title">${esc(run.title || run.id)}</span><span class="queue-meta">${esc(meta)}</span></li>`;
+        return `<li class="queue-item is-${esc(run.status)}" data-run-id="${esc(run.id || '')}" title="${esc(run.runDir || '')}"><span class="queue-dot"></span><span class="queue-title">${esc(run.title || run.id)}</span><span class="queue-meta">${esc(meta)}</span></li>`;
       }).join('')
       : '<li class="queue-empty">No runs recorded yet.</li>';
   } catch {
@@ -3124,6 +3125,7 @@ function init() {
   setZoom(state.zoom);
   syncModeButtons();
   wireEvents();
+  installResultsView({ desktop });
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

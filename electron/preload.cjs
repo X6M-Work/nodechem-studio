@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('desktop', {
   cancelRun: (runId) => ipcRenderer.invoke('gaussian:cancel', runId),
   listRuns: () => ipcRenderer.invoke('runs:list'),
   verifyRun: (runId) => ipcRenderer.invoke('runs:verify', runId),
+  exportRunBundle: (runId) => ipcRenderer.invoke('runs:export-bundle', runId),
   startQueue: (payload) => ipcRenderer.invoke('queue:start', payload),
   pauseQueue: (queueId) => ipcRenderer.invoke('queue:pause', queueId),
   resumeQueue: (queueId) => ipcRenderer.invoke('queue:resume', queueId),

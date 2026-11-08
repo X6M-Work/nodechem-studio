@@ -35,6 +35,7 @@ import {
   requiresUltraFineGrid,
 } from '../shared/tsForceConstants.js';
 import { runClusterAction } from './clusterExport.js';
+import { exportRunBundleAction } from './runBundle.js';
 import { provenanceSummary, syncVerifyButton, verifyRunInput } from './provenance.js';
 import { mountThermochemistryView } from './thermochemistryView.js';
 import { installResultsView } from './resultsView.js';
@@ -2747,6 +2748,9 @@ function handleAction(action, element) {
     case 'refresh-history': refreshHistory(); break;
     case 'cancel-run': cancelRun(); break;
     case 'verify-run': verifyCurrentRun(); break;
+    case 'export-run-bundle':
+      exportRunBundleAction({ desktop, runId: state.run.id, notify: toast });
+      break;
     case 'open-project': openProject(); break;
     case 'save-project': saveProject(); break;
     case 'export': exportSelectedInput(); break;

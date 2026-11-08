@@ -129,6 +129,10 @@ export class RunManager {
       app: { ...this.appInfo },
       provenance: {
         kind: provenanceKindFor(dryRun),
+        // The job keyword is part of the method record: a methods paragraph
+        // must be able to say "optimization + frequency" from run.json alone.
+        jobType: payload.settings && typeof payload.settings === 'object'
+          ? String(payload.settings.jobType || '').trim() || null : null,
         method: payload.settings && typeof payload.settings === 'object'
           ? methodBlockFor(payload.settings) : null,
         input: { name: payload.inputName, bytes: inputBytes },

@@ -1,17 +1,18 @@
 # NodeChem Studio
 
-A local-first desktop workspace for Gaussian 16. The graph is the workspace: every calculation,
-condition, loop, merge, output and note is a node, and the contextual inspector exposes the full
-job parameter set without hiding the canvas.
+A local-first desktop workspace for molecular calculations with **Gaussian 16** or **xTB**.
+The graph is the workspace: every calculation, condition, loop, merge, output and note is a node,
+and the contextual inspector exposes the full job parameter set without hiding the canvas.
 
 ![NodeChem Studio: node graph with the Reactant frequency inspector open](docs/images/studio-overview.png)
 
 **Status: v0.1 — local runner slice.** The graph, durable workflow queue, dry-run path and project
 format are implemented and covered by tests. Real Gaussian execution requires a licensed Gaussian 16
 installation on the same machine: the Windows console runner is `g16.exe`, the Linux and macOS
-console runner is `g16`. The Windows smoke test (GN-001) is still pending, and no real Linux or
-macOS job has been run yet — the platform handling is covered by unit tests against fake
-executables.
+console runner is `g16`. Real xTB execution needs no licence, only an `xtb` executable and its
+parameter files; select xTB as the project engine and follow [Engines](#engines). The Windows smoke
+test (GN-001) is still pending, and no real Linux or macOS Gaussian job has been run yet — the
+platform handling is covered by unit tests against fake executables.
 
 ## What it does
 
@@ -20,22 +21,119 @@ executables.
 - **Full parameter inspector** — route, SCF, optimization, frequency gates, population, IRC, scan,
   fragments, resources and checkpoint fields, with a wide two-column layout. Command/Ctrl+K opens
   a searchable block palette.
-- **Durable workflow queue** — run the graph in dependency order, one Gaussian process at a time.
+- **Durable workflow queue** — run the graph in dependency order, one engine process at a time.
   Conditions release one branch, loops retry with recorded attempts, and gates that cannot be
   judged stop the branch for human review. Pause, resume, cancel all, and restart recovery.
-- **Checkpoint hand-offs** — an explicit checkpoint edge stages the upstream `.chk` into the
-  downstream run folder and adds `%OldChk` plus `Geom=Check Guess=Read` to the route.
-- **Gaussian I/O** — deterministic `.gjf` builder, `.xyz`/`.mol`/`.sdf`/`.gjf`/`.com` structure
-  import, output discovery (`.out` or `.log`), and a parser for termination, SCF, optimization,
-  frequencies/imaginary modes, the complete thermochemistry block, and the final correlated
-  energy. Quasi-RRHO and 1 atm → 1 M standard-state corrections are shown as separate,
-  individually switchable audit lines in the run console.
+- **Checkpoint hand-offs (Gaussian only)** — an explicit checkpoint edge stages the upstream `.chk`
+  into the downstream run folder and adds `%OldChk` plus `Geom=Check Guess=Read` to the route. xTB
+  has no checkpoint file to hand off; see [Engines](#engines).
+- **Gaussian 16 and xTB I/O** — a deterministic Gaussian `.gjf` builder and an `.xyz` plus
+  argument-vector xTB builder; `.xyz`/`.mol`/`.sdf`/`.gjf`/`.com` structure import; output
+  discovery (`.out` or `.log`); and parsers that normalise both engines into one result record
+  (termination, SCF/SCC, optimization, frequencies/imaginary modes, the complete thermochemistry
+  block, and the final energy). Quasi-RRHO and 1 atm → 1 M standard-state corrections are shown as
+  separate, individually switchable audit lines in the run console for Gaussian; xTB's own mRRHO
+  result is never corrected again.
 - **Gates from output, never exit codes** — a task passes only when the parsed output satisfies
   every requested gate.
 - **Dry run by default** — writes a labelled fixture, so the runner, parser and gate path can be
   exercised without a Gaussian licence.
 - **Projects and packaging** — schema v1 with validation and migration, canonical saves, in-place
   Save, an unsaved-change guard, and an unsigned Windows NSIS installer built by CI.
+
+## Engines
+
+NodeChem Studio drives two calculation engines. The engine is a **project-level** choice: open the
+**Molecule drawer → Defaults** tab and pick **Engine**. Every calculation block in the project is
+then built for that engine, so choose it before you start a workflow. Existing projects keep the
+engine they saved; the app never switches one behind your back.
+
+### Gaussian 16 — licensed commercial software
+
+Gaussian 16 is a general-purpose electronic-structure program. In this app it gives you:
+
+- DFT (B3LYP, M06-2X, ωB97X-D, PBE0) and wavefunction (MP2, CCSD(T)) energies and optimisations
+  with an explicit basis set (for example def2-SVP, 6-311+G(d,p), cc-pVTZ or SDD), dispersion
+  (D3(BJ) or D3), SCF and integration-grid settings, population analysis (NBO, Hirshfeld, MK), and
+  PCM/SMD/CPCM implicit solvation.
+- The `SP`, `Opt`, `Opt Freq`, `Freq`, `Opt=TS`, `IRC` and `Scan` job types, transition-state
+  force-constant control (`CalcFC`, `CalcAll`, `ReadFC`), checkpoint hand-offs (`%OldChk` plus
+  `Geom=Check`/`Guess=Read`), thermochemistry, and the full set of pre/post-run validity checks.
+
+Gaussian is **licensed separately by Gaussian, Inc.**; the Apache 2.0 licence of this repository
+grants no rights to it. The app cannot run Gaussian without a licensed installation on the same
+machine and operating system. Windows uses the console `g16.exe`, Linux and macOS use `g16`; a
+Windows licence does not authorise a Linux binary, and a Windows licence may not be used under WSL.
+No Gaussian binaries or licence files are included. The app cannot install, bundle or licence
+Gaussian for you, and it runs one local process at a time. Without a licence you can still use the
+dry run (a labelled fixture) or xTB.
+
+### xTB — semi-empirical and force-field methods
+
+xTB is an open-source (LGPL) family of fast approximate methods. In this app it gives you:
+
+- GFN0-xTB, GFN1-xTB, GFN2-xTB and the GFN-FF force field, with GFN2-xTB as the default.
+- The `SP`, `Opt`, `Opt Freq` and `Freq` job types with xTB optimisation levels (`crude` through
+  `extreme`).
+- `ALPB` and `GBSA` solvation in the input builder for Water, Dichloromethane, THF, Toluene and
+  Acetonitrile.
+
+What xTB does **not** give you here:
+
+- No transition-state search (`Opt=TS`), no IRC and no PES scan. The input builder refuses those
+  job types instead of silently downgrading them to a single point.
+- No basis set, functional, dispersion, SCF, grid or population-analysis settings. Those
+  inspector fields are hidden in an xTB project and ignored by the builder. GFN2-xTB already
+  includes D4 dispersion, and xTB's free energy already uses the mRRHO entropy treatment, so the
+  app never adds a quasi-harmonic or standard-state correction on top of it.
+- No validity checks. They are Gaussian-route checks; the app does not judge them for xTB, and a
+  run record leaves them absent (never a pass).
+- No checkpoint hand-off. xTB re-reads `xtbrestart` from its own run directory, but the app does
+  not stage that file between blocks.
+- No TD-DFT excited states or NMR shielding (the app offers neither job type for either engine),
+  and no NBO/ESP population analysis for xTB.
+
+**An xTB run is not a substitute for a Gaussian result.** GFN methods are parameterised
+semi-empirical approximations: they are useful for fast screening, conformer searches and
+pre-optimisation, but their energies and barriers are not comparable to a DFT or wavefunction
+calculation. If a workflow needs a Gaussian level of theory, it needs a licensed Gaussian
+installation.
+
+### Setting up xTB
+
+1. Install xTB so the executable and its `share/xtb` parameter directory are available (release
+   tarballs ship `bin/xtb` beside `share/xtb`). No licence file is needed.
+2. Open **Molecule drawer → Defaults**, set **Engine** to **xTB (GFN-xTB)**, then choose the
+   Hamiltonian and optimisation level. The geometry comes from the drawer's **Structure** tab;
+   until you import a file, the labelled demo water geometry is used.
+3. Open **Run** and click **Browse** next to *xTB executable*; select `xtb` (or `xtb.exe` on
+   Windows). The app finds parameters in `../share/xtb` relative to the executable. If your
+   install is elsewhere, export `XTBPATH` pointing at that directory; preflight accepts either.
+4. Leave **Dry run** checked to exercise the labelled fixture, or uncheck it and click
+   **Preflight**. For xTB, preflight checks that the executable exists, is named `xtb`/`xtb.exe`,
+   and that parameter files were found (or `XTBPATH` is set).
+5. Click **Run selected block**. xTB prints to stdout, so the run folder keeps the captured stream
+   as `<input>.out`; xTB also writes `xtbopt.xyz` and `xtbrestart` beside it.
+
+The current inspector does not expose xTB solvation controls, so there is no UI way to turn it
+on; a run configured through the app is gas phase even though the builder understands
+`--alpb`/`--gbsa`. The optimised `xtbopt.xyz` is written to the run folder but is not yet loaded
+back into the structure viewer.
+
+### Which settings belong to which engine
+
+| Setting | Gaussian 16 | xTB |
+| --- | --- | --- |
+| Level of theory | Method + basis set | `--gfn 0/1/2` or `--gfnff` |
+| Basis set, dispersion, SCF, grid, population | Used | Ignored |
+| Solvation | PCM / SMD / CPCM | ALPB / GBSA (builder only; not in the current inspector) |
+| Job types | SP, Opt, Opt Freq, Freq, Opt=TS, IRC, Scan | SP, Opt, Opt Freq, Freq |
+| Optimisation control | `Opt=Tight`/`VeryTight`, force constants | `--opt <level>` / `--ohess <level>` |
+| Checkpoint hand-off | `%OldChk` + `Geom=Check`/`Guess=Read` | Not supported |
+| Dry run | Labelled `FIXTURE OUTPUT` fixture | Labelled `FIXTURE OUTPUT` fixture |
+
+A dry run is a fixture for both engines: it writes a synthetic file headed `FIXTURE OUTPUT`,
+starts no process, and is never a calculation.
 
 ## Workflow queue
 
@@ -191,8 +289,8 @@ therefore report a validity finding; the fixture is never presented as a real ca
 ## Requirements
 
 - Node.js 22 or newer and npm 10 or newer.
-- For a real run: a licensed Gaussian 16 installation on the **same machine and operating system**
-  as the app.
+- For a real **Gaussian 16** run: a licensed Gaussian 16 installation on the **same machine and
+  operating system** as the app.
   - **Windows:** the console executable is normally `C:\G16W\g16.exe`; `g16w.exe` is the GUI and is
     not used. Preflight expects `l1.exe` in the same directory.
   - **Linux and macOS:** the console executable is `g16`, normally `$g16root/g16/g16`, with Link 1
@@ -204,8 +302,11 @@ therefore report a validity finding; the fixture is never presented as a real ca
   - **WSL:** a Windows Gaussian licence may not be used under WSL. Use a native Linux install with
     its own licence on Linux, or run the Windows build on Windows. The same rule applies in
     reverse: a Linux licence does not authorise a Windows binary.
+- For a real **xTB** run: an `xtb` executable (`xtb.exe` on Windows) and its `share/xtb` parameter
+  directory, or `XTBPATH` pointing at it. xTB is open source and needs no licence. See
+  [Setting up xTB](#setting-up-xtb).
 - No Gaussian binaries, licence files or scratch data are included in this repository or in any
-  bundle.
+  bundle. No xTB binary is bundled either.
 
 ## Quick start
 
@@ -237,7 +338,7 @@ The app opens a seeded Diels–Alder project with **Dry run** checked.
 5. To exercise the queue instead, click **Run workflow**. Every block runs in dependency order;
    the queue panel shows each task's status, condition decision and gate verdict.
 
-A dry run writes a labelled `FIXTURE OUTPUT` file. It never claims to be a Gaussian result.
+A dry run writes a labelled `FIXTURE OUTPUT` file. It never claims to be a calculation.
 
 ## Running a real Gaussian job
 
@@ -362,6 +463,7 @@ electron/
   preload.cjs             contextBridge API
   runner/
     gaussianRunner.js     spawn + tail one Gaussian process
+    xtbRunner.js          spawn + capture one xTB process (stdout is the output artifact)
     gaussianPlatform.js   per-platform executable, Link 1 and scratch rules
     preflight.js          run-configuration checks (no Electron import)
     runManager.js         run folders, records, dry-run fixture, gates
@@ -399,7 +501,16 @@ docs/
   resolution, scratch warnings), not against a licensed installation.
 - **No macOS build target.** macOS is supported by preflight and the runner; no signing identity or
   licensed macOS Gaussian installation exists to build and test an app bundle.
-- One Gaussian process at a time by design; there is no concurrent local scheduler.
+- One engine process at a time by design; there is no concurrent local scheduler.
+- **xTB has no real-run evidence in this checkout.** The builder, parser and fixture path are
+  covered by unit tests, but the end-to-end suite runs only when `XTB_BIN` points at a real binary
+  and is skipped otherwise. No xTB run has been recorded here.
+- **xTB solvation is builder-only.** The inspector exposes no xTB solvation controls, so a run
+  started from the UI is gas phase. The optimised `xtbopt.xyz` stays in the run folder and is not
+  loaded into the structure viewer.
+- **xTB checkpoint/restart hand-off is not implemented.** `xtbrestart` is not staged between
+  blocks; xTB validity checks are reported as `unknown` in project validation and absent from a
+  run record, never a pass.
 - Merge `any` is recorded but readiness still waits for every input.
 - Output bundling is not implemented; output nodes stop the queue with a recorded reason.
 - Validity-check thresholds are documented offline choices, not yet calibrated against a real
@@ -423,7 +534,9 @@ Gaussian, which is licensed separately by Gaussian, Inc.
 - Confirm with the licence holder whether other users or remote access are permitted before using
   this app on a shared machine.
 - Dry run is deliberately the default. It produces a file headed `FIXTURE OUTPUT` and never claims
-  to be a Gaussian result.
+  to be a calculation.
+- xTB is open-source software under the LGPL. Like Gaussian, it is not bundled with this app; you
+  install it yourself.
 - Run records stay under Electron's `userData` directory. No run data is uploaded.
 - No Gaussian binaries, licence files or scratch data are included in this repository, in the
   installer, or in any release artifact.

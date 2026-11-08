@@ -47,6 +47,15 @@ import {
   showsGaussianResources,
   showsXtbThreads,
 } from './inspectorFields.js';
+import {
+  BROWSER_PREVIEW_CONSOLE_HINT,
+  BROWSER_PREVIEW_RUN_MESSAGE,
+  checkpointHandoffNote,
+  dryRunHintFor,
+  executableLabelFor,
+  executablePlaceholderFor,
+  runEngineLabel,
+} from './engineCopy.js';
 
 const desktop = window.desktop || null;
 
@@ -216,7 +225,7 @@ const state = {
   drag: null,
   pan: null,
   toastTimer: null,
-  statusMessage: 'Preview project · choose a calculation block to run the local Gaussian slice',
+  statusMessage: 'Preview project · choose a calculation block to run it locally',
   projectPath: null,
   savedSnapshot: null,
   dirty: null,
@@ -833,8 +842,9 @@ function calcInspector(node) {
   }
 
   // Issue #15: the force-constant choice is valid or not independently of the
-  // node's run state, so it gets its own callouts.
-  const tsIssues = tsForceConstantIssues(node);
+  // node's run state, so it gets its own callouts. Those rules are Gaussian
+  // route rules; xTB refuses transition-state blocks at input build instead.
+  const tsIssues = isXtb ? { errors: [], warnings: [] } : tsForceConstantIssues(node);
   callout += tsIssues.errors
     .map((message) => `<div class="callout"><strong>Cannot export.</strong> ${esc(message)}</div>`)
     .join('');
@@ -842,8 +852,8 @@ function calcInspector(node) {
     .map((message) => `<div class="callout"><strong>Warning.</strong> This block ${esc(message)}</div>`)
     .join('');
   // Issue #16: grid and frequency-provenance advice is also independent of the
-  // node's run state.
-  callout += optConvergenceIssues(node)
+  // node's run state — and Gaussian-only.
+  callout += isXtb ? '' : optConvergenceIssues(node)
     .map((message) => `<div class="callout"><strong>Warning.</strong> This block ${esc(message)}</div>`)
     .join('');
 
@@ -971,9 +981,7 @@ function calcInspector(node) {
         const artifact = source && source.type === 'calc' ? checkpointNameFor(source) : '';
         return source ? `<option value="${source.id}"${node.checkpointFrom === source.id ? ' selected' : ''}>${esc(source.title)}${artifact ? ` · ${esc(artifact)}` : ''}</option>` : '';
       }).join('')}
-    </select><span class="inspector-note" style="display:block;margin-top:4px">${isXtb
-    ? 'Copies <code>xtbrestart</code> into this task’s run folder; xTB reads it automatically.'
-    : 'Adds <code>%OldChk</code>, <code>Geom=Checkpoint</code> and <code>Guess=Read</code> to this task.'}</span></div>` : '',
+    </select><span class="inspector-note" style="display:block;margin-top:4px">${checkpointHandoffNote(engine.id)}</span></div>` : '',
   ].join(''));
 
   const outputGroup = group('Output', node.output ? 'parsed' : 'none', true, [
@@ -993,7 +1001,7 @@ function calcInspector(node) {
     showsXtbThreads(engine.id)
       ? inputField('Threads (OMP_NUM_THREADS)', 'xtbThreads', s.xtbThreads ?? '', { type: 'number', min: 1, max: 256 })
       : '',
-    '<div class="full"><div class="callout">This project runs on xTB. Gaussian route fields (method, basis, dispersion, SCF, grid, population) are ignored. GFN2-xTB includes D4 dispersion; there is no transition-state or IRC support.</div></div>',
+    '<div class="full"><div class="callout">This project runs on xTB. Gaussian route fields (method, basis, dispersion, SCF, grid, population) are ignored. GFN2-xTB includes D4 dispersion; transition-state searches, IRC and scans are not supported and are refused at input build.</div></div>',
   ].join(''));
   const headRoute = isXtb ? `${(XTB_METHODS.find((item) => item.id === (s.xtbMethod || 'gfn2')) || {}).label || 'xTB'} · ${s.jobType}` : routeShort(s);
 
@@ -1841,7 +1849,7 @@ function renderDrawer() {
         <div class="code-block">${esc(isXtb ? xtbRoute : gaussianRoute)}</div>
       </div>
       <div class="callout">Engine is a project-level choice: every calculation block is built for it. ${isXtb
-    ? 'xTB has no basis set, no transition-state search and no IRC — blocks needing those are refused at input build.'
+    ? 'xTB has no basis set, no transition-state search, no IRC and no scan — blocks needing those are refused at input build.'
     : 'Gaussian blocks keep the route, dispersion and basis configured per block.'}</div>
       <div class="callout">Defaults apply to <strong>new</strong> blocks. Existing blocks keep their own parameter snapshot, exactly like a workflow task.</div>`;
   }
@@ -1904,6 +1912,7 @@ function saveMolecule() {
   closeDrawer();
   renderGraph();
   renderInspector();
+  updateRunConsoleCopy();
   toast('Project molecule and defaults updated.');
 }
 
@@ -1973,12 +1982,15 @@ function hasOrdinaryCycle() {
 }
 
 function validateGraph() {
+  const engineId = engineOrDefault(state.project?.defaults?.engine).id;
   const conditions = state.project.nodes.filter((node) => node.type === 'condition').length;
   const loops = state.project.edges.filter((edge) => edge.type === 'loop').length;
   const findings = state.project.nodes
     .filter((node) => node.type === 'calc')
     .map((node) => {
-      const ts = tsForceConstantIssues(node);
+      // The force-constant and convergence rules are Gaussian route rules;
+      // xTB rejects unsupported job types when the input is built.
+      const ts = engineId === 'xtb' ? { errors: [], warnings: [] } : tsForceConstantIssues(node);
       // Issue #25: the same pre-run validity checks project validation runs,
       // surfaced in the inspector so a blocked export has a specific reason.
       const validity = runValidityChecks({
@@ -1990,7 +2002,7 @@ function validateGraph() {
         },
         parsed: null,
         upstream: validityUpstreamFor(node),
-      }, { phase: 'pre', engine: engineOrDefault(state.project?.defaults?.engine).id });
+      }, { phase: 'pre', engine: engineId });
       const blocking = new Set(VALIDITY_CHECKS.filter((check) => check.blocking).map((check) => check.id));
       return {
         node,
@@ -2002,7 +2014,7 @@ function validateGraph() {
         ],
         warnings: [
           ...ts.warnings,
-          ...optConvergenceIssues(node),
+          ...(engineId === 'xtb' ? [] : optConvergenceIssues(node)),
           ...validity.findings
             .filter((finding) => finding.status === CHECK_STATUS.WARNING
               || (finding.status === CHECK_STATUS.FAIL && !blocking.has(finding.id)))
@@ -2015,7 +2027,7 @@ function validateGraph() {
   if (errors.length > 0) {
     const more = errors.length > 1 ? ` · +${errors.length - 1} more` : '';
     state.statusMessage = `Validation failed · ${errors[0]}${more}`;
-    toast('Validation found a blocking issue in a transition-state block.');
+    toast('Validation found a blocking issue.');
   } else if (hasOrdinaryCycle()) {
     state.statusMessage = 'Structure warning · an ordinary dependency cycle exists. Use an explicit Loop block.';
     toast('Validation found an ordinary cycle.');
@@ -2175,7 +2187,9 @@ function settingsForNode(node) {
 function buildRunInput(node) {
   const engine = engineOrDefault(state.project?.defaults?.engine);
   // A ReadFC TS block without a usable checkpoint hand-off has nothing to read.
-  const issues = tsForceConstantIssues(node);
+  // Force-constant rules are Gaussian route rules; xTB refuses the job type
+  // itself with its own message.
+  const issues = engine.id === 'xtb' ? { errors: [] } : tsForceConstantIssues(node);
   if (issues.errors.length > 0) throw new Error(issues.errors[0]);
   const settings = settingsForNode(node);
   const imported = Array.isArray(state.project.molecule.coords) && state.project.molecule.coords.length > 0;
@@ -2204,13 +2218,28 @@ function buildInputForNode(node) {
   return buildRunInput(node).inputText;
 }
 
+/** Point the run-console copy at the engine the project will actually use. */
+function updateRunConsoleCopy() {
+  const engineId = engineOrDefault(state.project?.defaults?.engine).id;
+  const label = $('#run-exe-label');
+  if (label) label.textContent = executableLabelFor(engineId);
+  const executable = $('#run-exe');
+  if (executable) executable.placeholder = executablePlaceholderFor(engineId);
+  const hint = $('#run-hint');
+  if (hint && desktop) {
+    hint.textContent = dryRunHintFor(engineId);
+    hint.classList.remove('is-warn');
+  }
+}
+
 function openRunConsole() {
   const consoleEl = $('#run-console');
   if (!consoleEl) return;
   consoleEl.hidden = false;
+  updateRunConsoleCopy();
   $('#run-state').focus?.();
   if (!desktop) {
-    $('#run-hint').textContent = 'Browser preview: the local runner is unavailable. Start the Electron app with "npm run dev" or "npm start".';
+    $('#run-hint').textContent = BROWSER_PREVIEW_CONSOLE_HINT;
     $('#run-hint').classList.add('is-warn');
   }
 }
@@ -2336,7 +2365,7 @@ async function preflightRun({ quiet = false } = {}) {
 async function startSelectedRun() {
   const node = selectedCalcNode();
   if (!node) { toast('Select a calculation block first.'); return; }
-  if (!desktop) { toast('Open the desktop app to start a local Gaussian run.'); return; }
+  if (!desktop) { toast(BROWSER_PREVIEW_RUN_MESSAGE); return; }
 
   openRunConsole();
   saveRunConfig();
@@ -2406,7 +2435,7 @@ function handleRunEvent(event) {
   if (event.type === 'started') {
     state.run.dir = event.runDir;
     $('#run-path').textContent = event.runDir;
-    setStatusMessage(`Running ${event.record?.title || 'local job'} · ${event.record?.dryRun ? 'dry run' : 'Gaussian'}`);
+    setStatusMessage(`Running ${event.record?.title || 'local job'} · ${runEngineLabel(event.record?.engine, { dryRun: event.record?.dryRun })}`);
   } else if (event.type === 'output') {
     appendRunOutput(event.text);
   } else if (event.type === 'done') {
@@ -2617,7 +2646,9 @@ function handleQueueEvent(event) {
   if (!event.queue) return;
   applyQueue(event.queue);
   if (event.type === 'queue-started') {
-    setStatusMessage(`Workflow running · ${event.queue.tasks.length} blocks · ${event.queue.options?.dryRun ? 'dry run' : 'Gaussian'}`);
+    const queuedEngine = event.queue.tasks.find((task) => task.engine)?.engine
+      || state.project?.defaults?.engine;
+    setStatusMessage(`Workflow running · ${event.queue.tasks.length} blocks · ${runEngineLabel(queuedEngine, { dryRun: event.queue.options?.dryRun })}`);
   }
   if (event.type === 'queue-done') {
     const verdict = event.queue.status;
@@ -2636,7 +2667,7 @@ async function refreshHistory() {
     if (!el) return;
     el.innerHTML = runs.length
       ? runs.map((run) => {
-        const meta = [run.status, run.gates?.overall ? `gates ${run.gates.overall}` : '', run.dryRun ? 'dry' : 'Gaussian']
+        const meta = [run.status, run.gates?.overall ? `gates ${run.gates.overall}` : '', run.dryRun ? 'dry' : engineOrDefault(run.engine).label]
           .filter(Boolean).join(' · ');
         return `<li class="queue-item is-${esc(run.status)}" data-run-id="${esc(run.id || '')}" title="${esc(run.runDir || '')}"><span class="queue-dot"></span><span class="queue-title">${esc(run.title || run.id)}</span><span class="queue-meta">${esc(meta)}</span></li>`;
       }).join('')
@@ -2678,6 +2709,7 @@ async function openProject() {
     renderGraph();
     renderInspector();
     updateCounts();
+    updateRunConsoleCopy();
     toast(result.migrated ? 'Project opened and migrated to schema v1.' : 'Project opened.');
   } catch (error) {
     toast(`Could not open project: ${error.message}`);
@@ -3182,6 +3214,7 @@ export { calcInspector, state };
 function init() {
   if (window.innerWidth <= 820) state.inspectorHidden = true;
   readRunConfig();
+  updateRunConsoleCopy();
   if (desktop?.onRunEvent) desktop.onRunEvent(handleRunEvent);
   if (desktop?.onQueueEvent) desktop.onQueueEvent(handleQueueEvent);
   const kbdHint = $('#kbd-hint');

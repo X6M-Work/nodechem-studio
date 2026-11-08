@@ -39,6 +39,7 @@ import { exportRunBundleAction } from './runBundle.js';
 import { provenanceSummary, syncVerifyButton, verifyRunInput } from './provenance.js';
 import { mountThermochemistryView } from './thermochemistryView.js';
 import { installResultsView } from './resultsView.js';
+import { mountStructureViewer } from './structureViewer.js';
 import { formatPreflightReport } from './preflightReport.js';
 
 const desktop = window.desktop || null;
@@ -1178,7 +1179,7 @@ function renderInspector() {
   if (state.selected.type === 'node') {
     const node = nodeById(state.selected.id);
     if (!node) { el.innerHTML = renderProjectInspector(); return; }
-    if (node.type === 'calc') { el.innerHTML = calcInspector(node); return; }
+    if (node.type === 'calc') { el.innerHTML = calcInspector(node); mountStructureViewer(el, node); return; }
     if (node.type === 'condition') { el.innerHTML = conditionInspector(node); return; }
     if (node.type === 'loop') { el.innerHTML = loopInspector(node); return; }
     el.innerHTML = simpleInspector(node);
